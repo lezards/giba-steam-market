@@ -1,0 +1,16 @@
+{
+  "name": "giba-steam-market",
+  "version": "1.0.0",
+  "description": "Veja o valor do seu baú e os preços do Mercado Steam do TBH: Task Bar Hero, sem abrir a Steam. 100% read-only.",
+  "type": "module",
+  "bin": { "giba-steam-market": "server.mjs" },
+  "scripts": {
+    "start": "node server.mjs",
+    "extract-tables": "node scripts/extract-tbh-tables.mjs"
+  },
+  "keywords": ["steam", "market", "taskbar-hero", "tbh", "inventory", "price", "eusouogiba"],
+  "author": "EuSouOGiba (https://eusouogiba.com)",
+  "license": "MIT",
+  "homepage": "https://github.com/lezards/giba-steam-market",
+  "engines": { "node": ">=20" }
+}

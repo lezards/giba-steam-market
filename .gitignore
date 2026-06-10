@@ -1,0 +1,28 @@
+# ===== DADOS PESSOAIS — NUNCA COMMITAR =====
+# O save decifrado contém SEU inventário, progresso e dados de conta.
+data/save-plain.json
+data/save-decrypted.json
+data/*.es3
+data/*.bak
+
+# Caches gerados em runtime (preços do mercado, logs, testes)
+data/items-*.json
+data/inv-*.json
+data/*.log
+data/boot.log
+
+# Tabelas extraídas dos assets do jogo (cada usuário gera as suas)
+data/tbh-itemnames.json
+data/tbh-itemtable.json
+data/loc-en.json
+data/loc-en.bin
+
+# ===== Node / sistema =====
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# ===== Pessoal do dev =====
+PROJECT-STATUS.md
+.giba-app.json
