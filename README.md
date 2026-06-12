@@ -62,11 +62,32 @@ Pronto! 🎉 O seu baú aparece preenchido automaticamente.
 
 | Problema | Solução |
 |---|---|
+| **"Acesso Negado" ao abrir o .bat** | Veja a seção **"Acesso Negado — o que fazer"** logo abaixo. |
+| **"Acesso negado" / não conecta na porta 5260** | Atualize pra versão mais nova do app: agora ele escolhe outra porta sozinho quando o Windows bloqueia a 5260 e abre o navegador no endereço certo. |
+| "O Windows protegeu o seu computador" (tela azul do SmartScreen) | Aviso padrão pra qualquer .bat baixado da internet. Clique em **"Mais informações" → "Executar assim mesmo"**. |
 | "node não é reconhecido" | Você não instalou o Node.js (Passo 1) ou precisa **reiniciar o PC** depois de instalar. |
 | "save do TBH não encontrado" | Abra o TBH pelo menos uma vez pra ele criar o save. |
 | "assets do TBH não encontrados" | O jogo está instalado num lugar diferente. Veja **"Steam em outra pasta"** abaixo. |
 | Os nomes dos materiais não aparecem | Normal! Os nomes dos materiais são opcionais — veja a seção **"Mostrar nomes dos materiais"**. |
-| A página não abre | Abra o navegador e digite: `http://localhost:5260` |
+| A página não abre | Olhe a janela preta: ela mostra o endereço real (ex: `http://localhost:5260` ou outra porta). Digite esse endereço no navegador. |
+
+### 🔒 "Acesso Negado" — o que fazer
+
+Esse erro tem 2 causas possíveis, e o app novo já te avisa qual é a sua:
+
+**Causa 1 — Rodou o .bat de dentro do ZIP, sem extrair.**
+O Windows abre o ZIP como se fosse pasta, mas não é. Clique com o botão direito no ZIP → **"Extrair Tudo..."** → entre na pasta extraída → rode o `.bat` de lá.
+
+**Causa 2 — A pasta é protegida pelo Windows.**
+Pastas como `Arquivos de Programas`, a raiz do `C:\` ou pastas vigiadas pelo antivírus/OneDrive não deixam o app gravar o cache. **Mova a pasta inteira do app** pra `Documentos` ou pra `C:\giba-steam-market` e rode de lá.
+
+**E o "acesso negado" na porta 5260?**
+O Windows reserva faixas de portas pra recursos internos (Hyper-V/WSL), e em alguns PCs a 5260 cai numa faixa reservada — não é firewall nem configuração sua. A versão atual do app detecta isso e **pula automaticamente pra próxima porta livre** (5261, 5262…), abrindo o navegador já no endereço certo. Se você baixou o app antes dessa correção, baixe o ZIP de novo. Pra forçar uma porta manualmente:
+
+```bat
+set GSM_PORT=5300
+start-steam-market.bat
+```
 
 ### Steam em outra pasta
 

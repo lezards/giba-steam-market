@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import * as tbhSave from './tbh-save.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -126,6 +127,7 @@ const server = http.createServer(async (req, res) => {
   };
   try {
     if (u.pathname === '/') return send(200, INDEX, 'text/html');
+    if (u.pathname === '/__gsm-ping') return send(200, 'giba-steam-market', 'text/plain');
     if (u.pathname === '/api/items') return send(200, await apiItems(u.searchParams));
     if (u.pathname === '/api/price') return send(200, await apiPrice(u.searchParams));
     if (u.pathname === '/api/stash') {
@@ -144,4 +146,49 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => log(`Giba Steam Market ON → http://localhost:${PORT} (default appid ${DEFAULT_APPID})`));
+// O Windows reserva faixas de portas pro Hyper-V/WSL (netsh excludedportrange).
+// Se a 5260 cair numa faixa dessas, listen falha com EACCES sem o app ter culpa —
+// então tentamos as portas seguintes em vez de morrer com "acesso negado".
+const MAX_PORT_TRIES = 20;
+
+function openBrowser(url) {
+  if (process.env.GSM_OPEN !== '1') return;
+  try {
+    const cmd = process.env.COMSPEC || 'cmd.exe';
+    const child = spawn(cmd, ['/c', 'start', '', url], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {}); // ENOENT chega async; sem handler, derruba o processo
+    child.unref();
+  } catch {}
+}
+
+async function isOurInstance(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/__gsm-ping`, { signal: AbortSignal.timeout(1500) });
+    return res.ok && (await res.text()) === 'giba-steam-market';
+  } catch { return false; }
+}
+
+function tryListen(port, triesLeft) {
+  server.once('error', async (err) => {
+    if (err.code === 'EADDRINUSE' && await isOurInstance(port)) {
+      log(`Ja tem uma instancia rodando em http://localhost:${port} — abrindo o navegador nela.`);
+      openBrowser(`http://localhost:${port}`);
+      return process.exit(0);
+    }
+    if ((err.code === 'EACCES' || err.code === 'EADDRINUSE') && triesLeft > 0) {
+      log(`Porta ${port} indisponivel (${err.code}) — tentando ${port + 1}...`);
+      server.removeAllListeners('listening'); // o callback do listen que falhou fica pendurado
+      return tryListen(port + 1, triesLeft - 1);
+    }
+    log(`ERRO FATAL ao abrir porta (${err.code}: ${err.message}). Rode com outra porta: set GSM_PORT=5300 e abra o .bat de novo.`);
+    process.exit(1);
+  });
+  server.listen(port, '127.0.0.1', () => {
+    const url = `http://localhost:${port}`;
+    if (port !== PORT) log(`Porta ${PORT} estava bloqueada/ocupada pelo Windows — usando ${port} no lugar.`);
+    log(`Giba Steam Market ON → ${url} (default appid ${DEFAULT_APPID})`);
+    openBrowser(url);
+  });
+}
+
+tryListen(PORT, MAX_PORT_TRIES);

@@ -86,7 +86,8 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 | `node` não é reconhecido | Node não instalado / PATH | Instalar Node LTS, reiniciar o PC |
 | `save do TBH não encontrado` | Save não existe | Abrir o jogo uma vez |
 | `assets do TBH não encontrados` | Steam em pasta incomum | Definir `set TBH_GAME_DIR=<pasta>\TaskBarHero_Data` antes de iniciar |
-| Porta 5260 ocupada | Outra instância rodando | Fechar a janela preta antiga, ou mudar `GSM_PORT` |
+| Porta 5260 ocupada ou `EACCES` | Outra instância rodando, ou porta dentro de faixa reservada do Windows (`netsh int ipv4 show excludedportrange protocol=tcp`) | O server tenta sozinho as 20 portas seguintes (5261…) e loga a escolhida; se já houver instância nossa rodando, só reabre o navegador nela. Forçar manualmente: `GSM_PORT` |
+| "Acesso negado" ao iniciar o .bat | Pasta protegida (Program Files, OneDrive, antivírus) ou .bat rodado de dentro do ZIP | O launcher detecta os dois casos e imprime a solução; instruir mover a pasta pra `Documentos`/`C:\giba-steam-market` ou extrair o ZIP |
 | Materiais sem nome | Falta tabela de localização | `pip install UnityPy` + `npm run extract-tables` (opcional) |
 | Preço total parece errado | Steam respondeu em moeda da região | O app força USD (`country=US&currency=1`); apague `data/items-3678970.json` e reinicie pra repuxar |
 
@@ -110,7 +111,8 @@ em texto legível. Defina-a manualmente com `set TBH_ES3_PASSWORD=<chave>`.
 
 | Variável | Para quê |
 |---|---|
-| `GSM_PORT` | Mudar a porta (padrão 5260) |
+| `GSM_PORT` | Mudar a porta base (padrão 5260; se bloqueada/ocupada o server tenta as 20 seguintes) |
+| `GSM_OPEN` | `1` = o server abre o navegador sozinho ao subir (o .bat já seta) |
 | `TBH_GAME_DIR` | Apontar a pasta `TaskBarHero_Data` manualmente |
 | `TBH_ES3_PASSWORD` | Forçar a senha do save se a auto-extração falhar |
 
