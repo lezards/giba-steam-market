@@ -26,3 +26,6 @@ Thumbs.db
 # ===== Pessoal do dev =====
 PROJECT-STATUS.md
 .giba-app.json
+
+# Ferramentas locais do Giba (Playwright p/ descobrir endpoints) — NÃO publicar
+tools/

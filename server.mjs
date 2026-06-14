@@ -29,6 +29,9 @@ const cachePath = (appid) => path.join(DATA, `items-${appid}.json`);
 
 const priceCache = new Map(); // key: appid|name → { at, data }
 const refreshing = new Map(); // appid → Promise em andamento (dedup)
+const orderbookCache = new Map(); // key: appid|hash → { at, data }
+const ORDERBOOK_TTL_MS = 3 * 60 * 1000; // ordens mudam rápido; 3min é bom equilíbrio
+const ORDERBOOK_DELAY_MS = 650;          // throttle entre itens do baú (gentileza com a Steam)
 
 async function steamGet(url) {
   const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
@@ -117,6 +120,88 @@ async function apiPrice(q) {
   return data;
 }
 
+// ── Ordens de compra (buy orders) — venda imediata ────────────────────────
+// A UI nova da Steam usa /market/orderbook?q=Load&qp=[appid,"hash"] (sem item_nameid).
+// Retorna em centavos na moeda da REGIÃO (eCurrency 7 = BRL). Funciona com fetch puro.
+const CUR_SYMBOL = { 1: '$', 7: 'R$' };
+
+function classifyLiquidez(buyCount) {
+  if (!buyCount) return 'nenhuma';
+  if (buyCount > 500) return 'alta';
+  if (buyCount >= 50) return 'media';
+  return 'baixa';
+}
+
+async function fetchOrderbook(appid, hash) {
+  const key = `${appid}|${hash}`;
+  const hit = orderbookCache.get(key);
+  if (hit && (Date.now() - hit.at) < ORDERBOOK_TTL_MS) return hit.data;
+  const qp = encodeURIComponent(JSON.stringify([Number(appid), hash]));
+  const url = `https://steamcommunity.com/market/orderbook?q=Load&qp=${qp}`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': UA,
+      'Accept': 'application/json',
+      'Referer': `https://steamcommunity.com/market/listings/${appid}/${encodeURIComponent(hash)}`,
+    },
+  });
+  if (res.status === 429) throw Object.assign(new Error('rate-limited'), { code: 429 });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = await res.json();
+  const d = (j && j.success && j.data) ? j.data : {};
+  const buyCount = d.cBuyOrders || 0;
+  const data = {
+    hash,
+    maxBuyCents: d.amtMaxBuyOrder ?? null,   // valor que você recebe vendendo NA HORA
+    minSellCents: d.amtMinSellOrder ?? null, // anúncio de venda mais barato
+    buyCount,
+    sellCount: d.cSellOrders || 0,
+    currency: d.eCurrency || null,
+    symbol: CUR_SYMBOL[d.eCurrency] || '',
+    liquidez: classifyLiquidez(buyCount),
+  };
+  orderbookCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
+// Busca as ordens de TODOS os itens do baú do Giba (server controla o throttle).
+async function apiStashOrders(q) {
+  const appid = Number(q.get('appid')) || DEFAULT_APPID;
+  if (!tbhSave.saveExists()) return { found: false };
+  const market = readListCache(appid);
+  if (!market) return { found: true, needItems: true };
+  const stash = tbhSave.readStash(market.items);
+  // só itens que têm hash de mercado (dá pra vender) e que eu possuo
+  const owned = (stash.items || []).filter(it => it.hash && (it.qty || it.count || 1) > 0);
+  const out = [];
+  let totalImediatoCents = 0;
+  let currency = null, symbol = '';
+  for (const it of owned) {
+    const qty = it.qty || it.count || 1;
+    try {
+      const ob = await fetchOrderbook(appid, it.hash);
+      currency = currency || ob.currency; symbol = symbol || ob.symbol;
+      const subtotal = ob.maxBuyCents ? ob.maxBuyCents * qty : 0;
+      totalImediatoCents += subtotal;
+      out.push({ name: it.name, hash: it.hash, qty,
+        maxBuyCents: ob.maxBuyCents, minSellCents: ob.minSellCents,
+        buyCount: ob.buyCount, liquidez: ob.liquidez, subtotalCents: subtotal });
+    } catch (e) {
+      out.push({ name: it.name, hash: it.hash, qty, error: e.code === 429 ? 'rate-limited' : e.message });
+      if (e.code === 429) break; // parou de raspar; devolve o que já tem
+    }
+    await sleep(ORDERBOOK_DELAY_MS);
+  }
+  // OBJETIVO: vender RÁPIDO. Quem tem mais ordens de compra ativas (cBuyOrders) tem
+  // mais gente esperando pra comprar = venda imediata batendo na ordem. Ordena por isso.
+  // Itens SEM ordem de compra vão pro fim (não dá pra vender rápido). Desempate: maior
+  // valor da ordem de compra por unidade (entre os líquidos, pega o que rende mais).
+  out.sort((a, b) =>
+    (b.buyCount || 0) - (a.buyCount || 0) ||
+    (b.maxBuyCents || 0) - (a.maxBuyCents || 0));
+  return { found: true, currency, symbol, totalImediatoCents, count: out.length, items: out };
+}
+
 const INDEX = fs.readFileSync(path.join(ROOT, 'public', 'index.html'));
 
 const server = http.createServer(async (req, res) => {
@@ -130,6 +215,13 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === '/__gsm-ping') return send(200, 'giba-steam-market', 'text/plain');
     if (u.pathname === '/api/items') return send(200, await apiItems(u.searchParams));
     if (u.pathname === '/api/price') return send(200, await apiPrice(u.searchParams));
+    if (u.pathname === '/api/orderbook') {
+      const appid = Number(u.searchParams.get('appid')) || DEFAULT_APPID;
+      const name = u.searchParams.get('name');
+      if (!name) throw new Error('name obrigatorio');
+      return send(200, await fetchOrderbook(appid, name));
+    }
+    if (u.pathname === '/api/stash-orders') return send(200, await apiStashOrders(u.searchParams));
     if (u.pathname === '/api/stash') {
       // só TBH tem leitura de save; outros appids retornam "não suportado"
       const appid = Number(u.searchParams.get('appid')) || DEFAULT_APPID;

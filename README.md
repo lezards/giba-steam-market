@@ -5,16 +5,20 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
-> ### 🆕 Atualização 12/06/2026 — muito mais fácil de instalar!
-> - ✅ **O app agora instala o Node.js sozinho** — você não precisa mais instalar nada antes.
-> - ✅ **Corrigido o erro "Acesso Negado"** que algumas pessoas viram (porta bloqueada pelo Windows — o app agora resolve sozinho).
-> - ✅ Se algo der errado, a janela agora **explica em português o que fazer**, em vez de fechar na sua cara.
+> ### 🆕 Atualização 14/06/2026 — agora mostra quem QUER COMPRAR seus itens!
+> Tem um botão novo no seu baú: **"💸 Ver ordens de compra"**. Quando você clica, o app mostra, pra cada item que você tem:
+> - 🟢 **Por quanto dá pra vender NA HORA** (a "ordem de compra" = gente que já está esperando pra comprar).
+> - 🔵 **O preço de venda mais barato** na Steam (pra você comparar).
+> - **Quantas pessoas querem comprar** aquele item (quanto mais gente, mais rápido vende).
 >
-> **Se você baixou antes dessa data, baixe o ZIP de novo!**
+> **Por que isso ajuda:** em vez de colocar um item à venda e ficar esperando alguém aparecer, você vê o que tem comprador na fila e vende **na hora**. Dá pra ordenar por **"⚡ vende mais rápido"** ou por **"💎 maior preço"**.
+>
+> _(As atualizações anteriores — instalação automática e correção do "Acesso Negado" — continuam valendo. Veja o histórico no fim desta página.)_
 
 O que ele mostra:
 
 - 💰 **O valor total do seu inventário** (equipamentos + materiais), lido direto do save do jogo.
+- 💸 **Quem quer comprar seus itens e por quanto** — pra vender rápido (botão "Ver ordens de compra").
 - 🔎 **Os preços do Mercado da Steam** de todos os itens, do mais caro pro mais barato, com busca.
 - 🪙 Preço em **dólar e em real (R$)**.
 
@@ -62,6 +66,26 @@ Clique no botão verde **`<> Code`** lá em cima nesta página → **Download ZI
 Ban acontece quando alguém **modifica** o save pra trapacear ou automatiza trocas. Nada disso é feito aqui. É leitura passiva, como abrir o arquivo no Bloco de Notas.
 
 > ⚠️ Ainda assim, use por sua conta e risco. Este é um projeto da comunidade, sem vínculo com a Valve ou com os criadores do TBH.
+
+---
+
+## 💸 Ver quem quer comprar seus itens (vender rápido)
+
+No seu baú tem o botão **"💸 Ver ordens de compra"**. Clica nele e espera uns segundos (o app pergunta pra Steam item por item, com calma pra não ser bloqueado).
+
+Aí, pra cada item você vê:
+
+- 🟢 **compra R$ X** — quanto você recebe **vendendo na hora**. Tem gente já esperando pra comprar por esse valor.
+- 🔵 **venda R$ Y** — o anúncio mais barato à venda na Steam (só pra você comparar).
+- **Quantos compradores** estão na fila. Quanto mais, mais rápido vende. A bolinha verde/amarela/laranja mostra isso de relance.
+
+No topo aparece **"Vendendo TUDO que tem ordem de compra: R$ ..."** — quanto você embolsaria vendendo tudo agora mesmo.
+
+**Dica:** use o botão **ordenar por** pra alternar:
+- **⚡ procura** — mostra primeiro o que vende mais rápido (mais compradores na fila).
+- **💎 mais cara** — mostra primeiro a ordem de compra de maior valor.
+
+Assim você decide na hora: despejar o que sai rápido, ou priorizar o que rende mais. 🤑
 
 ---
 
@@ -129,9 +153,18 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 - **Stack:** Node puro (sem dependências), servidor HTTP + UI HTML única. Python+UnityPy só pra extrair nomes de materiais (opcional).
 - **Launcher:** o `.bat` valida ambiente (ZIP extraído, permissão de escrita), resolve/instala Node via winget e sobe o server. O server faz fallback de porta (5260→+20) quando a base cai em faixa reservada do Windows (`netsh int ipv4 show excludedportrange`) e abre o browser na porta real.
 - **Preços:** endpoints públicos `steamcommunity.com/market/search/render` e `/priceoverview`, com throttle e cache em disco.
+- **Ordens de compra:** endpoint público `market/orderbook?q=Load&qp=[appid,"hash"]` (usado pela UI nova da Steam) — retorna maior ordem de compra, menor ordem de venda e nº de ordens, sem precisar de `item_nameid`. Batch dos itens do baú no server (`/api/stash-orders`, throttle ~650ms, cache 3min).
 - **Save:** Easy Save 3 (AES-128-CBC, PBKDF2-SHA1). A chave fica em texto plano nos assets do jogo e é auto-extraída.
 - **Mapeamento item→preço:** tabela mestra dos assets (`ItemKey → grade/tipo/nível`) casa com o `type` do mercado; materiais via localização Unity.
 - Detalhes em [`AI-SETUP.md`](AI-SETUP.md).
+
+---
+
+## 📜 Histórico de atualizações
+
+- **14/06/2026** — Botão "💸 Ver ordens de compra": mostra quem quer comprar seus itens e por quanto, pra vender rápido. Ordenação por procura ou por preço.
+- **12/06/2026** — Instalação automática (o app instala o Node.js sozinho) e correção do erro "Acesso Negado" (porta bloqueada pelo Windows). Mensagens de erro em português.
+- **09/06/2026** — Primeira versão: valor do baú do TBH + preços do Mercado da Steam.
 
 ---
 
