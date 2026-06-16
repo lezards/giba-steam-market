@@ -7,9 +7,48 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 
-const SAVE_DIR = path.join(os.homedir(), 'AppData/LocalLow/TesseractStudio/TaskbarHero');
-const SAVE_FILE = path.join(SAVE_DIR, 'SaveFile_Live.es3');
+const SAVE_REL = 'AppData/LocalLow/TesseractStudio/TaskbarHero';
+const APPID = 3678970; // TBH: Task Bar Hero
 const SAVE_NAMES_DIR = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), 'data');
+
+// [Suporte Linux] Raízes de biblioteca Steam, agora multiplataforma.
+// ANTES: cada busca varria só drives Windows (C:/Steam, D:/SteamLibrary...) e devolvia null no
+// Linux. AGORA: Windows (drives) + Linux (~/.local/share/Steam, ~/.steam, flatpak) + bibliotecas
+// extras declaradas no libraryfolders.vdf. Reusado pra achar o save (prefixo Proton) e os assets.
+function steamLibraries() {
+  const home = os.homedir();
+  const roots = [
+    path.join(home, '.local/share/Steam'),
+    path.join(home, '.steam/steam'),
+    path.join(home, '.steam/root'),
+    path.join(home, '.var/app/com.valvesoftware.Steam/.local/share/Steam'), // flatpak
+  ];
+  for (const drive of ['C', 'D', 'E', 'F', 'G', 'H']) {
+    roots.push(`${drive}:/Steam`, `${drive}:/SteamLibrary`, `${drive}:/Program Files (x86)/Steam`, `${drive}:/Games/Steam`);
+  }
+  const libs = new Set(roots);
+  for (const r of roots) {
+    for (const vdf of [path.join(r, 'steamapps/libraryfolders.vdf'), path.join(r, 'config/libraryfolders.vdf')]) {
+      try { const t = fs.readFileSync(vdf, 'utf8'); for (const m of t.matchAll(/"path"\s*"([^"]+)"/g)) libs.add(m[1].replace(/\\\\/g, '\\')); } catch {}
+    }
+  }
+  return [...libs];
+}
+
+// [Suporte Linux] Caminho do save, agora multiplataforma.
+// ANTES: caminho fixo no Windows (~/AppData/LocalLow/...), que NÃO existe no Linux — o save fica
+// dentro do prefixo Proton/Wine de cada biblioteca Steam (Steam Deck incluso), então o baú nunca
+// era encontrado. AGORA: tenta Windows nativo, depois cada prefixo Proton; força via TBH_SAVE_FILE.
+// Continua SÓ LEITURA — nunca escreve aqui (regra inviolável do projeto).
+function findSaveFile() {
+  if (process.env.TBH_SAVE_FILE) return process.env.TBH_SAVE_FILE;
+  const candidates = [path.join(os.homedir(), SAVE_REL, 'SaveFile_Live.es3')]; // Windows
+  for (const lib of steamLibraries()) {
+    candidates.push(path.join(lib, `steamapps/compatdata/${APPID}/pfx/drive_c/users/steamuser`, SAVE_REL, 'SaveFile_Live.es3'));
+  }
+  return candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } }) || candidates[0];
+}
+const SAVE_FILE = findSaveFile();
 // Senha de descriptografia do save (Easy Save 3). NÃO é segredo do usuário — é uma chave do JOGO,
 // guardada em texto plano dentro dos assets do TBH. A gente extrai sozinho (à prova de updates).
 // Pode forçar via env TBH_ES3_PASSWORD se a auto-extração falhar.
@@ -35,12 +74,8 @@ function getES3Password() {
 function findGameDataDir() {
   if (process.env.TBH_GAME_DIR && fs.existsSync(process.env.TBH_GAME_DIR)) return process.env.TBH_GAME_DIR;
   const rel = 'steamapps/common/TaskbarHero/TaskBarHero_Data';
-  const roots = [];
-  // raízes comuns de instalação Steam por drive
-  for (const drive of ['C', 'D', 'E', 'F', 'G', 'H']) {
-    roots.push(`${drive}:/Steam`, `${drive}:/SteamLibrary`, `${drive}:/Program Files (x86)/Steam`, `${drive}:/Games/Steam`);
-  }
-  for (const r of roots) { const p = path.join(r, rel); if (fs.existsSync(p)) return p; }
+  // [Suporte Linux] usa steamLibraries() (antes varria só drives Windows → achava nada no Linux)
+  for (const r of steamLibraries()) { const p = path.join(r, rel); try { if (fs.existsSync(p)) return p; } catch {} }
   return null;
 }
 const ASSET_CANDIDATES = (() => { const d = findGameDataDir(); return d ? [path.join(d, 'sharedassets0.assets')] : []; })();
@@ -70,7 +105,12 @@ function loadItemTable() {
   const assetPath = ASSET_CANDIDATES.find(p => fs.existsSync(p));
   if (!assetPath) throw new Error('assets do TBH não encontrados (jogo instalado em outra pasta? defina TBH_GAME_DIR)');
   const t = fs.readFileSync(assetPath, 'latin1');
-  const hdr = 'ItemKey,ITEMTYPE,GRADE,PARTS,GEARTYPE,GearGroup,ItemSynthesisType,NameKey,DescriptionKey,GearKey,DropKey,DropCooldown,Level,IsSteamItem,IconPath,IsDeletedInServer,IsCanExchangeMarketable';
+  // [Robustez vs update do jogo] Casa só um PREFIXO estável do cabeçalho.
+  // ANTES: casava a string do cabeçalho INTEIRA — um update do TBH adicionou a coluna IsBucketBox
+  // no meio, o indexOf passou a falhar e o baú quebrava ("tabela de itens não encontrada").
+  // AGORA: localiza pelo prefixo; as colunas são lidas dinamicamente abaixo (split por nome),
+  // então colunas novas no fim não quebram nada.
+  const hdr = 'ItemKey,ITEMTYPE,GRADE,PARTS,GEARTYPE,GearGroup,ItemSynthesisType';
   const start = t.indexOf(hdr);
   if (start < 0) throw new Error('tabela de itens não encontrada nos assets');
   let e = start;

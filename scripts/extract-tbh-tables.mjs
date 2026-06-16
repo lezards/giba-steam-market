@@ -5,22 +5,41 @@
 // A parte de nomes (localização) precisa de Python + UnityPy: pip install UnityPy
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DATA = path.join(ROOT, 'data');
 
-// Descobre a pasta do TBH varrendo as bibliotecas Steam de qualquer drive (não hardcoda nenhum PC).
+// [Suporte Linux] Raízes de biblioteca Steam, agora multiplataforma (mesma lógica do tbh-save.mjs).
+// ANTES: o findGameDir() só varria drives Windows → no Linux não achava o jogo e a extração de
+// tabelas (npm run extract-tables) morria com "TBH não encontrado".
+// AGORA: Windows (drives) + Linux (~/.local/share/Steam, ~/.steam, flatpak) + libraryfolders.vdf.
+function steamLibraries() {
+  const home = os.homedir();
+  const roots = [
+    path.join(home, '.local/share/Steam'),
+    path.join(home, '.steam/steam'),
+    path.join(home, '.steam/root'),
+    path.join(home, '.var/app/com.valvesoftware.Steam/.local/share/Steam'), // flatpak
+  ];
+  for (const drive of ['C', 'D', 'E', 'F', 'G', 'H']) {
+    roots.push(`${drive}:/Steam`, `${drive}:/SteamLibrary`, `${drive}:/Program Files (x86)/Steam`, `${drive}:/Games/Steam`);
+  }
+  const libs = new Set(roots);
+  for (const r of roots) {
+    for (const vdf of [path.join(r, 'steamapps/libraryfolders.vdf'), path.join(r, 'config/libraryfolders.vdf')]) {
+      try { const t = fs.readFileSync(vdf, 'utf8'); for (const m of t.matchAll(/"path"\s*"([^"]+)"/g)) libs.add(m[1].replace(/\\\\/g, '\\')); } catch {}
+    }
+  }
+  return [...libs];
+}
+// Descobre a pasta do TBH (Windows nativo ou instalação Proton/Linux).
 function findGameDir() {
   if (process.env.TBH_GAME_DIR && fs.existsSync(process.env.TBH_GAME_DIR)) return process.env.TBH_GAME_DIR;
   const rel = 'steamapps/common/TaskbarHero/TaskBarHero_Data';
-  for (const drive of ['C', 'D', 'E', 'F', 'G', 'H']) {
-    for (const root of [`${drive}:/Steam`, `${drive}:/SteamLibrary`, `${drive}:/Program Files (x86)/Steam`, `${drive}:/Games/Steam`]) {
-      const p = path.join(root, rel);
-      if (fs.existsSync(p)) return p;
-    }
-  }
+  for (const r of steamLibraries()) { const p = path.join(r, rel); try { if (fs.existsSync(p)) return p; } catch {} }
   return null;
 }
 const gameDir = findGameDir();
@@ -28,7 +47,9 @@ if (!gameDir) { console.error('TBH não encontrado. Defina TBH_GAME_DIR=<pasta>\
 
 // 1) tabela mestra (texto plano em sharedassets0.assets)
 const t = fs.readFileSync(path.join(gameDir, 'sharedassets0.assets'), 'latin1');
-const hdr = 'ItemKey,ITEMTYPE,GRADE,PARTS,GEARTYPE,GearGroup,ItemSynthesisType,NameKey,DescriptionKey,GearKey,DropKey,DropCooldown,Level,IsSteamItem,IconPath,IsDeletedInServer,IsCanExchangeMarketable';
+// [Robustez vs update do jogo] prefixo estável do cabeçalho (mesmo motivo do tbh-save.mjs):
+// um update adicionou a coluna IsBucketBox e o match do cabeçalho inteiro passou a falhar.
+const hdr = 'ItemKey,ITEMTYPE,GRADE,PARTS,GEARTYPE,GearGroup,ItemSynthesisType';
 const s = t.indexOf(hdr);
 let e = s; while (e < t.length) { const c = t.charCodeAt(e); if ((c >= 0x20 && c <= 0x7e) || c === 10 || c === 13) e++; else break; }
 const lines = t.slice(s, e).split(/\r?\n/).filter(l => l.trim());
@@ -65,9 +86,13 @@ for key,mid in shared.items():
 json.dump(out,open(r'${DATA.replace(/\\/g, '/')}/tbh-itemnames.json','w',encoding='utf8'),ensure_ascii=False)
 print('tbh-itemnames.json:',len(out),'nomes')
 `;
-try {
-  const r = execFileSync('python', ['-c', py], { encoding: 'utf8' });
-  console.log(r.trim());
-} catch (err) {
-  console.error('Nomes (UnityPy) falhou — instale: pip install UnityPy\n', err.message);
+// [Suporte Linux] Interpretador Python multiplataforma.
+// ANTES: chamava só 'python' — no Linux o binário costuma ser 'python3' (ou nem existir), então a
+// etapa de nomes (UnityPy) falhava. AGORA: TBH_PYTHON (ex: venv com UnityPy) → python3 → python.
+const pythons = [process.env.TBH_PYTHON, 'python3', 'python'].filter(Boolean);
+let done = false, lastErr;
+for (const exe of pythons) {
+  try { console.log(execFileSync(exe, ['-c', py], { encoding: 'utf8' }).trim()); done = true; break; }
+  catch (err) { lastErr = err; }
 }
+if (!done) console.error('Nomes (UnityPy) falhou — instale UnityPy e aponte o interpretador via TBH_PYTHON, ou: pip install UnityPy\n', lastErr?.message);
