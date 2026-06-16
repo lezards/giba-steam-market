@@ -12,5 +12,5 @@
   "author": "EuSouOGiba (https://eusouogiba.com)",
   "license": "MIT",
   "homepage": "https://github.com/lezards/giba-steam-market",
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=21" }
 }

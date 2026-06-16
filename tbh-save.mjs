@@ -115,7 +115,19 @@ function loadItemNames() {
   return _itemNames;
 }
 
-const asArr = v => (typeof v === 'string' ? JSON.parse(v) : v);
+// [Correção de identidade dos itens] IDs de item no save são inteiros de 64 bits (18 dígitos).
+// JSON.parse os lê como float64, que só tem ~15-16 dígitos de precisão — IDs DISTINTOS colidem no
+// mesmo valor arredondado (ex: ...262742 e ...262763 viram ...262700). Resultado: o byId perdia
+// itens (ex: 70 viravam 40) e casava slots com o item ERRADO (nome/preço trocados). Este reviver
+// mantém todo inteiro grande como STRING, preservando a identidade exata. (context.source: Node 21+.)
+const bigIntReviver = (k, v, ctx) =>
+  (typeof v === 'number' && ctx && typeof ctx.source === 'string' && /^-?\d{16,}$/.test(ctx.source)) ? ctx.source : v;
+const parseSave = s => JSON.parse(s, bigIntReviver);
+const asArr = v => (typeof v === 'string' ? parseSave(v) : v);
+
+// O reviver depende do 3º arg (context.source), que só existe no Node 21+. Sem ele os IDs grandes
+// voltariam a colidir e o baú sairia errado SILENCIOSAMENTE — então detectamos e falhamos explícito.
+const JSON_SOURCE_OK = (() => { let ok = false; try { JSON.parse('1234567890123456789', (k, v, ctx) => { if (ctx && typeof ctx.source === 'string') ok = true; return v; }); } catch {} return ok; })();
 
 export function saveExists() { return fs.existsSync(SAVE_FILE); }
 export function saveMtime() { try { return fs.statSync(SAVE_FILE).mtimeMs; } catch { return 0; } }
@@ -124,15 +136,28 @@ export function saveMtime() { try { return fs.statSync(SAVE_FILE).mtimeMs; } cat
 // marketItems = array do cache /api/items (pra cruzar preço).
 export function readStash(marketItems) {
   if (!saveExists()) throw new Error('save do TBH não encontrado');
+  if (!JSON_SOURCE_OK) throw new Error('Node 21+ necessário (a leitura precisa de JSON.parse com context.source pra preservar os IDs de 64 bits do save). Atualize o Node.');
   const buf = fs.readFileSync(SAVE_FILE);
-  const root = JSON.parse(decryptES3(buf, getES3Password()).toString('utf8'));
-  const psd = JSON.parse(root.PlayerSaveData.value);
+  // parseSave (não JSON.parse) pra preservar os IDs int64 — ver bigIntReviver acima
+  const root = parseSave(decryptES3(buf, getES3Password()).toString('utf8'));
+  const psd = parseSave(root.PlayerSaveData.value);
 
   const items = asArr(psd.itemSaveDatas);
-  const byId = {}; for (const it of items) byId[it.UniqueId] = it;
+  // chaveia por String(UniqueId): usar o número (arredondado pelo float64) como chave colidia itens
+  const byId = {}; for (const it of items) byId[String(it.UniqueId)] = it;
+  // [Inventário completo] ANTES lia só stash + inventory, deixando de fora itens que você possui:
+  //  - equipados nos heróis (heroSaveDatas[].equippedItemIds) — em geral o gear MAIS valioso
+  //  - a trading stash (tradingStashSaveDatas)
+  // AGORA inclui os quatro locais; cada slot carrega de onde veio (where) pro subtotal por local.
+  const equippedSlots = [];
+  for (const h of (asArr(psd.heroSaveDatas) || [])) {
+    for (const id of (h.equippedItemIds || [])) equippedSlots.push({ ItemUniqueId: id, where: 'equipped' });
+  }
   const slots = [
     ...asArr(psd.stashSaveDatas).map(s => ({ ...s, where: 'stash' })),
-    ...asArr(psd.inventorySaveDatas).map(s => ({ ...s, where: 'inventory', ItemUniqueId: s.ItemUniqueId })),
+    ...asArr(psd.inventorySaveDatas).map(s => ({ ...s, where: 'inventory' })),
+    ...asArr(psd.tradingStashSaveDatas).map(s => ({ ...s, where: 'trading' })),
+    ...equippedSlots,
   ].filter(s => s.ItemUniqueId && String(s.ItemUniqueId) !== '0');
 
   const table = loadItemTable();
@@ -140,12 +165,18 @@ export function readStash(marketItems) {
   const mkidx = buildMarketIndex(marketItems);
   const mkByName = buildMarketByName(marketItems);
 
-  const agg = {}; // marketHash -> { name, priceCents, qty, kind }
+  const agg = {}; // marketHash -> { name, priceCents, qty, equippedQty, kind }
   let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0;
+  const locationCents = { stash: 0, inventory: 0, equipped: 0, trading: 0 }; // subtotal por local
   const unknown = {};
+  const cap = s => s ? s[0] + s.slice(1).toLowerCase() : s; // "HELMET" -> "Helmet"
+  // Nome localizado de qualquer item: material usa names[ItemKey]; equipamento usa o número do
+  // NameKey da tabela (ex: ItemName_500007 -> names["500007"] = "War Helmet"). Assim dá pra MOSTRAR
+  // o item mesmo sem preço de mercado, em vez de escondê-lo.
+  const localName = (it, r) => { const nk = r && r.NameKey ? String(r.NameKey).replace(/^ItemName_/, '') : null; return names[it.ItemKey] || (nk && names[nk]) || null; };
 
   for (const slot of slots) {
-    const it = byId[slot.ItemUniqueId];
+    const it = byId[String(slot.ItemUniqueId)];
     if (!it) continue;
     const r = table[it.ItemKey];
     let m = null, kind = null;
@@ -155,25 +186,45 @@ export function readStash(marketItems) {
     if (!m) { const nm = names[it.ItemKey]; if (nm) { m = mkByName[nm.toLowerCase()]; if (m) kind = 'material'; } }
     if (m) {
       const k = m.hash;
-      if (!agg[k]) agg[k] = { name: m.name, hash: m.hash, priceCents: m.priceCents, priceText: m.priceText, type: m.type, icon: m.icon, color: m.color, url: m.url, qty: 0, kind };
+      if (!agg[k]) agg[k] = { name: m.name, hash: m.hash, priceCents: m.priceCents, priceText: m.priceText, type: m.type, icon: m.icon, color: m.color, url: m.url, qty: 0, equippedQty: 0, kind };
       agg[k].qty++;
+      if (slot.where === 'equipped') agg[k].equippedQty++; // pra UI marcar item equipado
       totalCents += m.priceCents; priced++;
+      if (slot.where in locationCents) locationCents[slot.where] += m.priceCents;
       if (kind === 'material') matCents += m.priceCents; else gearCents += m.priceCents;
     } else {
+      // [Mostrar itens sem preço] Sem listagem na Steam o item ANTES sumia da lista (só virava
+      // contagem em unknownSummary), parecendo "não lido". Agora entra na lista marcado unpriced:true,
+      // com nome real e $0, pra ficar visível. Não soma no total (priceCents 0).
       unpriced++;
-      const nm = names[it.ItemKey];
-      const label = nm || (r ? `${r.GEARTYPE || r.ITEMTYPE} ${r.GRADE} Lv${r.Level}`.trim() : `ItemKey ${it.ItemKey}`);
-      unknown[label] = (unknown[label] || 0) + 1;
+      const isGear = !!(r && r.GEARTYPE);
+      const base = localName(it, r);
+      const grade = (r && (GRADE_MAP[r.GRADE] || r.GRADE)) || '';
+      const dispName = base
+        ? (isGear && grade ? `${base} (${grade})` : base)
+        : (r ? `${r.GEARTYPE || r.ITEMTYPE || '?'} ${r.GRADE || ''} Lv${r.Level || '?'}`.trim() : `ItemKey ${it.ItemKey}`);
+      const typeLabel = isGear ? `${cap(r.GEARTYPE)}${r.Level ? ` · Lv ${r.Level}` : ''}` : (r && r.ITEMTYPE ? cap(r.ITEMTYPE) : 'material');
+      const uk = `u:${it.ItemKey}`;
+      if (!agg[uk]) agg[uk] = {
+        name: dispName, hash: null, priceCents: 0, priceText: '—', type: typeLabel, icon: '', color: '',
+        url: `https://steamcommunity.com/market/search?appid=3678970&q=${encodeURIComponent(base || dispName)}`,
+        qty: 0, equippedQty: 0, kind: isGear ? 'gear' : (base ? 'material' : 'gear'), unpriced: true,
+      };
+      agg[uk].qty++;
+      if (slot.where === 'equipped') agg[uk].equippedQty++;
+      unknown[dispName] = (unknown[dispName] || 0) + 1;
     }
   }
 
-  const list = Object.values(agg).sort((a, b) => b.priceCents * b.qty - a.priceCents * a.qty);
+  // priced primeiro (por valor), unpriced no fim (priceCents 0), desempatando por quantidade
+  const list = Object.values(agg).sort((a, b) => (b.priceCents * b.qty - a.priceCents * a.qty) || (b.qty - a.qty));
   return {
     fetchedAt: Date.now(),
     saveMtime: saveMtime(),
     totalCents,
     gearCents,
     matCents,
+    locationCents,
     totalItems: slots.length,
     pricedItems: priced,
     unpricedItems: unpriced,
