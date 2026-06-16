@@ -263,14 +263,20 @@ function renderStash(){
       return `<div class="srow${hasBuy?' has-buy':''}">
         <span class="kind" title="${r.kind==='material'?'material':'equipamento'}">${ki}</span>
         ${r.icon?`<img loading="lazy" src="${r.icon}">`:'<div style="width:34px"></div>'}
-        <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${r.type} · ${r.priceText} un.</small></div>
+        <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${r.type} · ${r.priceText} un.${r.equippedQty?` · 🎽 ${r.equippedQty} equipado${r.equippedQty>1?'s':''}`:''}</small></div>
         <div class="qty" style="cursor:default"><span>×${r.qty}</span></div>
         <div class="sval">$${(tot/100).toFixed(2)}</div>
         ${obCell}
         <a class="srm" href="${r.url}" target="_blank" title="Abrir na Steam" style="text-decoration:none">↗</a></div>`;
     }).join('') : '<div class="empty">Baú lido, mas nenhum item vendável no momento.</div>';
     $('totUsd').textContent='$'+(stashData.totalCents/100).toFixed(2);
-    if(stashData.gearCents!=null) $('totSplit').innerHTML=`⚔️ equipamentos <b>$${(stashData.gearCents/100).toFixed(2)}</b> &nbsp;·&nbsp; 🔩 materiais <b>$${(stashData.matCents/100).toFixed(2)}</b>`;
+    if(stashData.gearCents!=null){
+      // split por tipo (equipamento/material) + subtotal do que está EQUIPADO (vem de locationCents)
+      let split=`⚔️ equipamentos <b>$${(stashData.gearCents/100).toFixed(2)}</b> &nbsp;·&nbsp; 🔩 materiais <b>$${(stashData.matCents/100).toFixed(2)}</b>`;
+      const eqC=stashData.locationCents&&stashData.locationCents.equipped;
+      if(eqC) split+=` &nbsp;·&nbsp; 🎽 equipados <b>$${(eqC/100).toFixed(2)}</b>`;
+      $('totSplit').innerHTML=split;
+    }
     const unp = stashData.unpricedItems ? ` · ${stashData.unpricedItems} sem mercado` : '';
     $('stashCount').textContent=`🔄 auto do save · ${stashData.types} tipos · ${stashData.pricedItems} itens com preço${unp}`;
     if(window._brlRate) $('totBrl').textContent='≈ R$ '+(stashData.totalCents/100*window._brlRate).toFixed(2).replace('.',',');

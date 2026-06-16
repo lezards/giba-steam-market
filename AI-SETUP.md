@@ -62,7 +62,8 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 
 ## Requisitos
 
-- **Node.js 20+** — obrigatório. (`node --version` pra checar.)
+- **Node.js 21+** — obrigatório. (`node --version` pra checar.) A leitura do baú usa `JSON.parse` com
+  `context.source` (Node 21+) pra preservar os IDs de 64 bits do save sem perda de precisão.
 - **TBH instalado** e aberto pelo menos uma vez (pra existir o save).
 - **Python + UnityPy** — OPCIONAL, só pra mostrar o nome/preço dos materiais.
 
