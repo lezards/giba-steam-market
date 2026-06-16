@@ -58,6 +58,8 @@
   #stashBody{border-top:1px solid var(--line);max-height:340px;overflow:auto}
   .srow{display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid #161d30}
   .srow:last-child{border:0}
+  .srow.unpriced{opacity:.66}                 /* itens sem preço: visíveis, mas discretos */
+  .nop{color:var(--dim);font-style:italic}
   .srow img{width:34px;height:34px;border-radius:6px;background:#0d1220;object-fit:contain}
   .srow .sn{flex:1;min-width:0}
   .srow .sn b{font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -259,15 +261,20 @@ function renderStash(){
       const ki=r.kind==='material'?'🔩':'⚔️';
       const o = ordData && ordData[r.hash];
       const hasBuy = o && o.maxBuyCents>0;
-      const obCell = ordData ? `<div class="ob">${ obCellHtml(o) }</div>` : '';
-      return `<div class="srow${hasBuy?' has-buy':''}">
+      // ordens de compra só pra item com preço/hash; mantém a coluna alinhada quando ordData ativo
+      const obCell = ordData ? `<div class="ob">${ r.unpriced ? '' : obCellHtml(o) }</div>` : '';
+      const eqTag = r.equippedQty?` · 🎽 ${r.equippedQty} equipado${r.equippedQty>1?'s':''}`:'';
+      // item SEM listagem na Steam: mostra mesmo assim (não some), marcado "sem preço"
+      const meta = r.unpriced ? `${r.type} · <span class="nop">sem listagem na Steam</span>${eqTag}` : `${r.type} · ${r.priceText} un.${eqTag}`;
+      const valCell = r.unpriced ? '<span class="nop">sem preço</span>' : `$${(tot/100).toFixed(2)}`;
+      return `<div class="srow${hasBuy?' has-buy':''}${r.unpriced?' unpriced':''}">
         <span class="kind" title="${r.kind==='material'?'material':'equipamento'}">${ki}</span>
         ${r.icon?`<img loading="lazy" src="${r.icon}">`:'<div style="width:34px"></div>'}
-        <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${r.type} · ${r.priceText} un.${r.equippedQty?` · 🎽 ${r.equippedQty} equipado${r.equippedQty>1?'s':''}`:''}</small></div>
+        <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${meta}</small></div>
         <div class="qty" style="cursor:default"><span>×${r.qty}</span></div>
-        <div class="sval">$${(tot/100).toFixed(2)}</div>
+        <div class="sval">${valCell}</div>
         ${obCell}
-        <a class="srm" href="${r.url}" target="_blank" title="Abrir na Steam" style="text-decoration:none">↗</a></div>`;
+        <a class="srm" href="${r.url}" target="_blank" title="${r.unpriced?'Procurar na Steam':'Abrir na Steam'}" style="text-decoration:none">↗</a></div>`;
     }).join('') : '<div class="empty">Baú lido, mas nenhum item vendável no momento.</div>';
     $('totUsd').textContent='$'+(stashData.totalCents/100).toFixed(2);
     if(stashData.gearCents!=null){

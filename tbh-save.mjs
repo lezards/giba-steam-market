@@ -169,6 +169,11 @@ export function readStash(marketItems) {
   let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0;
   const locationCents = { stash: 0, inventory: 0, equipped: 0, trading: 0 }; // subtotal por local
   const unknown = {};
+  const cap = s => s ? s[0] + s.slice(1).toLowerCase() : s; // "HELMET" -> "Helmet"
+  // Nome localizado de qualquer item: material usa names[ItemKey]; equipamento usa o número do
+  // NameKey da tabela (ex: ItemName_500007 -> names["500007"] = "War Helmet"). Assim dá pra MOSTRAR
+  // o item mesmo sem preço de mercado, em vez de escondê-lo.
+  const localName = (it, r) => { const nk = r && r.NameKey ? String(r.NameKey).replace(/^ItemName_/, '') : null; return names[it.ItemKey] || (nk && names[nk]) || null; };
 
   for (const slot of slots) {
     const it = byId[String(slot.ItemUniqueId)];
@@ -188,14 +193,31 @@ export function readStash(marketItems) {
       if (slot.where in locationCents) locationCents[slot.where] += m.priceCents;
       if (kind === 'material') matCents += m.priceCents; else gearCents += m.priceCents;
     } else {
+      // [Mostrar itens sem preço] Sem listagem na Steam o item ANTES sumia da lista (só virava
+      // contagem em unknownSummary), parecendo "não lido". Agora entra na lista marcado unpriced:true,
+      // com nome real e $0, pra ficar visível. Não soma no total (priceCents 0).
       unpriced++;
-      const nm = names[it.ItemKey];
-      const label = nm || (r ? `${r.GEARTYPE || r.ITEMTYPE} ${r.GRADE} Lv${r.Level}`.trim() : `ItemKey ${it.ItemKey}`);
-      unknown[label] = (unknown[label] || 0) + 1;
+      const isGear = !!(r && r.GEARTYPE);
+      const base = localName(it, r);
+      const grade = (r && (GRADE_MAP[r.GRADE] || r.GRADE)) || '';
+      const dispName = base
+        ? (isGear && grade ? `${base} (${grade})` : base)
+        : (r ? `${r.GEARTYPE || r.ITEMTYPE || '?'} ${r.GRADE || ''} Lv${r.Level || '?'}`.trim() : `ItemKey ${it.ItemKey}`);
+      const typeLabel = isGear ? `${cap(r.GEARTYPE)}${r.Level ? ` · Lv ${r.Level}` : ''}` : (r && r.ITEMTYPE ? cap(r.ITEMTYPE) : 'material');
+      const uk = `u:${it.ItemKey}`;
+      if (!agg[uk]) agg[uk] = {
+        name: dispName, hash: null, priceCents: 0, priceText: '—', type: typeLabel, icon: '', color: '',
+        url: `https://steamcommunity.com/market/search?appid=3678970&q=${encodeURIComponent(base || dispName)}`,
+        qty: 0, equippedQty: 0, kind: isGear ? 'gear' : (base ? 'material' : 'gear'), unpriced: true,
+      };
+      agg[uk].qty++;
+      if (slot.where === 'equipped') agg[uk].equippedQty++;
+      unknown[dispName] = (unknown[dispName] || 0) + 1;
     }
   }
 
-  const list = Object.values(agg).sort((a, b) => b.priceCents * b.qty - a.priceCents * a.qty);
+  // priced primeiro (por valor), unpriced no fim (priceCents 0), desempatando por quantidade
+  const list = Object.values(agg).sort((a, b) => (b.priceCents * b.qty - a.priceCents * a.qty) || (b.qty - a.qty));
   return {
     fetchedAt: Date.now(),
     saveMtime: saveMtime(),
