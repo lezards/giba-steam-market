@@ -160,10 +160,22 @@ export function readStash(marketItems) {
 
   const items = asArr(psd.itemSaveDatas);
   const byId = {}; for (const it of items) byId[it.UniqueId] = it;
-  const slots = [
+  const slotRefs = [
     ...asArr(psd.stashSaveDatas).map(s => ({ ...s, where: 'stash' })),
     ...asArr(psd.inventorySaveDatas).map(s => ({ ...s, where: 'inventory', ItemUniqueId: s.ItemUniqueId })),
   ].filter(s => s.ItemUniqueId && String(s.ItemUniqueId) !== '0');
+  const seenItemIds = new Set();
+  let duplicateSlotRefsIgnored = 0;
+  const slots = [];
+  for (const slot of slotRefs) {
+    const itemId = String(slot.ItemUniqueId);
+    if (seenItemIds.has(itemId)) {
+      duplicateSlotRefsIgnored++;
+      continue;
+    }
+    seenItemIds.add(itemId);
+    slots.push(slot);
+  }
 
   const table = loadItemTable();
   const names = loadItemNames();
@@ -205,6 +217,8 @@ export function readStash(marketItems) {
     gearCents,
     matCents,
     totalItems: slots.length,
+    slotRefs: slotRefs.length,
+    duplicateSlotRefsIgnored,
     pricedItems: priced,
     unpricedItems: unpriced,
     types: list.length,

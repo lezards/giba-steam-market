@@ -275,7 +275,7 @@ function renderStash(){
     $('totUsd').textContent='$'+(stashData.totalCents/100).toFixed(2);
     if(stashData.gearCents!=null) $('totSplit').innerHTML=`⚔️ equipamentos <b>$${(stashData.gearCents/100).toFixed(2)}</b> &nbsp;·&nbsp; 🔩 materiais <b>$${(stashData.matCents/100).toFixed(2)}</b>`;
     const unp = stashData.unpricedItems ? ` · ${stashData.unpricedItems} sem mercado` : '';
-    $('stashCount').textContent=`🔄 auto do save · ${stashData.types} tipos · ${stashData.pricedItems} itens com preço${unp}`;
+    $('stashCount').textContent=`🔄 auto do save · ${stashData.types} tipos · ${stashData.pricedItems} itens únicos com preço${unp}`;
     if(window._brlRate) $('totBrl').textContent='≈ R$ '+(stashData.totalCents/100*window._brlRate).toFixed(2).replace('.',',');
     return;
   }

@@ -5,6 +5,11 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
+> ### 🛠️ Atualização 18/06/2026 — contagem real do baú por item único
+> Corrigido um caso em que o save do TBH mantinha várias posições apontando para o mesmo item interno. A versão anterior contava cada posição e podia mostrar `×20` quando o jogador tinha 1 item real.
+>
+> Agora o app soma por `UniqueId` do item, ignorando referências duplicadas do save. Isso deixa quantidade e total mais próximos do que existe de verdade no baú.
+>
 > ### 🛠️ Atualização 18/06/2026 — corrigido erro "tabela de itens não encontrada nos assets"
 > O TBH mudou a tabela interna de itens nos assets do jogo. A versão anterior procurava um cabeçalho antigo e podia cair nesse erro ao abrir o app baixado do GitHub.
 >
@@ -110,6 +115,7 @@ A janela preta agora **te diz o que fazer** na maioria dos erros. Mas aqui vai a
 | **"save do TBH não encontrado"** | Abra o jogo TBH pelo menos uma vez (pra ele criar o save) e clique em Atualizar. |
 | **"assets do TBH não encontrados"** | Jogo instalado em pasta incomum — veja **"Steam em outra pasta"** abaixo. |
 | **"tabela de itens não encontrada nos assets"** | Baixe a versão mais nova do app. O TBH mudou a tabela interna; a versão atual aceita colunas novas automaticamente. Se persistir, rode `npm run extract-tables`. |
+| Quantidade do baú parece multiplicada | Baixe a versão mais nova. A versão atual ignora referências duplicadas do save e conta por item único. |
 | Materiais sem nome na lista | Normal, é opcional — veja **"Mostrar nomes dos materiais"** abaixo. |
 | Página não abre sozinha | Olhe a janela preta: ela mostra o endereço (ex: `http://localhost:5260`). Digite ele no navegador. |
 
@@ -170,6 +176,7 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 
 ## 📜 Histórico de atualizações
 
+- **18/06/2026** — Contagem do baú por item único (`UniqueId`), ignorando referências duplicadas do save.
 - **18/06/2026** — Correção do erro "tabela de itens não encontrada nos assets" após mudança no formato da tabela interna do TBH.
 - **14/06/2026** — Botão "💸 Ver ordens de compra": mostra quem quer comprar seus itens e por quanto, pra vender rápido. Ordenação por procura ou por preço.
 - **12/06/2026** — Instalação automática (o app instala o Node.js sozinho) e correção do erro "Acesso Negado" (porta bloqueada pelo Windows). Mensagens de erro em português.
