@@ -155,6 +155,7 @@ const byHash=h=>all.find(i=>i.hash===h);
 
 // ===== Meu Baú — AUTO via save do jogo (TBH), manual pra outros =====
 let stashData=null;   // resposta de /api/stash (TBH)
+let stashError='';    // erro real da leitura automática, quando houver
 let manual={};        // hash->qty (fallback manual / outros jogos)
 const manKey=()=>`gsm_stash_${appid}`;
 function loadStash(){ try{manual=JSON.parse(localStorage.getItem(manKey()))||{}}catch{manual={}} }
@@ -227,11 +228,13 @@ async function loadOrders(){
 }
 
 async function loadAutoStash(){
-  stashData=null; ordData=null; $('ordSummary').hidden=true;
+  stashData=null; stashError=''; ordData=null; $('ordSummary').hidden=true;
   try{
-    const j=await(await fetch(`/api/stash?appid=${appid}`)).json();
+    const r=await fetch(`/api/stash?appid=${appid}`);
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||r.status);
     if(j.supported && j.found && j.items) stashData=j;
-  }catch{}
+  }catch(e){ stashError=e.message||'erro desconhecido'; }
   renderStash();
 }
 
@@ -279,6 +282,11 @@ function renderStash(){
   // modo MANUAL (outros jogos ou save não encontrado)
   $('totSplit').innerHTML='';
   const hashes=Object.keys(manual);
+  if(stashError && appid===3678970){
+    body.innerHTML=`<div class="empty" style="color:#e8784a">Não consegui ler o baú automático: ${stashError}. Se você acabou de atualizar o TBH, baixe a versão mais nova do app ou rode <code>npm run extract-tables</code>.</div>`;
+    $('totUsd').textContent='$0.00'; $('totBrl').textContent=''; $('stashCount').textContent='erro na leitura automática — modo manual disponível';
+    return;
+  }
   if(!hashes.length){ body.innerHTML='<div class="empty">Baú vazio. Clique no ＋ de um item da lista pra calcular tua carteira manualmente.</div>'; $('totUsd').textContent='$0.00'; $('totBrl').textContent=''; $('stashCount').textContent=appid===3678970?'save do TBH não encontrado — modo manual':''; return; }
   let totC=0, known=0;
   const rows=hashes.map(h=>{const it=byHash(h),q=manual[h],c=it?it.priceCents:0; if(it){totC+=c*q;known++;} return {h,q,it,c};}).sort((a,b)=>(b.c*b.q)-(a.c*a.q));

@@ -5,6 +5,13 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
+> ### 🛠️ Atualização 18/06/2026 — corrigido erro "tabela de itens não encontrada nos assets"
+> O TBH mudou a tabela interna de itens nos assets do jogo. A versão anterior procurava um cabeçalho antigo e podia cair nesse erro ao abrir o app baixado do GitHub.
+>
+> Agora o app lê a tabela por colunas obrigatórias, aceitando colunas novas do jogo automaticamente. Se você viu esse erro, baixe a versão mais nova e rode `start-steam-market.bat` de novo.
+>
+> Se ainda falhar após uma atualização futura do TBH, rode `npm run extract-tables` uma vez na pasta do app.
+>
 > ### 🆕 Atualização 14/06/2026 — agora mostra quem QUER COMPRAR seus itens!
 > Tem um botão novo no seu baú: **"💸 Ver ordens de compra"**. Quando você clica, o app mostra, pra cada item que você tem:
 > - 🟢 **Por quanto dá pra vender NA HORA** (a "ordem de compra" = gente que já está esperando pra comprar).
@@ -102,6 +109,7 @@ A janela preta agora **te diz o que fazer** na maioria dos erros. Mas aqui vai a
 | **"Nao consegui instalar o Node.js automaticamente"** | Instale manual: [nodejs.org](https://nodejs.org) → botão verde **LTS** → Avançar até o fim → rode o .bat de novo. |
 | **"save do TBH não encontrado"** | Abra o jogo TBH pelo menos uma vez (pra ele criar o save) e clique em Atualizar. |
 | **"assets do TBH não encontrados"** | Jogo instalado em pasta incomum — veja **"Steam em outra pasta"** abaixo. |
+| **"tabela de itens não encontrada nos assets"** | Baixe a versão mais nova do app. O TBH mudou a tabela interna; a versão atual aceita colunas novas automaticamente. Se persistir, rode `npm run extract-tables`. |
 | Materiais sem nome na lista | Normal, é opcional — veja **"Mostrar nomes dos materiais"** abaixo. |
 | Página não abre sozinha | Olhe a janela preta: ela mostra o endereço (ex: `http://localhost:5260`). Digite ele no navegador. |
 
@@ -162,6 +170,7 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 
 ## 📜 Histórico de atualizações
 
+- **18/06/2026** — Correção do erro "tabela de itens não encontrada nos assets" após mudança no formato da tabela interna do TBH.
 - **14/06/2026** — Botão "💸 Ver ordens de compra": mostra quem quer comprar seus itens e por quanto, pra vender rápido. Ordenação por procura ou por preço.
 - **12/06/2026** — Instalação automática (o app instala o Node.js sozinho) e correção do erro "Acesso Negado" (porta bloqueada pelo Windows). Mensagens de erro em português.
 - **09/06/2026** — Primeira versão: valor do baú do TBH + preços do Mercado da Steam.

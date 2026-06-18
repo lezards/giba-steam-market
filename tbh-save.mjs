@@ -46,6 +46,17 @@ function findGameDataDir() {
 const ASSET_CANDIDATES = (() => { const d = findGameDataDir(); return d ? [path.join(d, 'sharedassets0.assets')] : []; })();
 
 const GRADE_MAP = { DIVINE:'Divine', ARCANA:'Arcana', IMMORTAL:'Immortal', LEGENDARY:'Legendary', BEYOND:'Beyond', EPIC:'Epic', RARE:'Rare' };
+const ITEM_TABLE_REQUIRED_COLUMNS = [
+  'ItemKey',
+  'ITEMTYPE',
+  'GRADE',
+  'GEARTYPE',
+  'NameKey',
+  'Level',
+  'IsSteamItem',
+  'IconPath',
+  'IsCanExchangeMarketable',
+];
 
 function decryptES3(buf, password) {
   const iv = buf.subarray(0, 16);
@@ -55,6 +66,37 @@ function decryptES3(buf, password) {
   let out = Buffer.concat([dec.update(data), dec.final()]);
   if (out[0] === 0x1f && out[1] === 0x8b) out = zlib.gunzipSync(out);
   return out;
+}
+
+function readAsciiBlock(text, start) {
+  let end = start;
+  while (end < text.length) {
+    const c = text.charCodeAt(end);
+    if ((c >= 0x20 && c <= 0x7e) || c === 10 || c === 13 || c === 9) end++;
+    else break;
+  }
+  return text.slice(start, end);
+}
+
+function parseItemTableText(text) {
+  const headerStart = text.indexOf('ItemKey,ITEMTYPE,');
+  if (headerStart < 0) return null;
+  const block = readAsciiBlock(text, headerStart);
+  const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return null;
+
+  const cols = lines[0].split(',').map(c => c.trim());
+  if (!ITEM_TABLE_REQUIRED_COLUMNS.every(c => cols.includes(c))) return null;
+
+  const map = {};
+  for (const line of lines.slice(1)) {
+    const parts = line.split(',');
+    if (!/^\d+$/.test(parts[0] || '')) continue;
+    const row = {};
+    cols.forEach((c, i) => row[c] = parts[i] || '');
+    map[row.ItemKey] = row;
+  }
+  return Object.keys(map).length ? map : null;
 }
 
 // Tabela mestra de itens do jogo: ItemKey -> { GRADE, GEARTYPE, Level, IsCanExchangeMarketable, ... }
@@ -70,20 +112,8 @@ function loadItemTable() {
   const assetPath = ASSET_CANDIDATES.find(p => fs.existsSync(p));
   if (!assetPath) throw new Error('assets do TBH não encontrados (jogo instalado em outra pasta? defina TBH_GAME_DIR)');
   const t = fs.readFileSync(assetPath, 'latin1');
-  const hdr = 'ItemKey,ITEMTYPE,GRADE,PARTS,GEARTYPE,GearGroup,ItemSynthesisType,NameKey,DescriptionKey,GearKey,DropKey,DropCooldown,Level,IsSteamItem,IconPath,IsDeletedInServer,IsCanExchangeMarketable';
-  const start = t.indexOf(hdr);
-  if (start < 0) throw new Error('tabela de itens não encontrada nos assets');
-  let e = start;
-  while (e < t.length) { const c = t.charCodeAt(e); if ((c >= 0x20 && c <= 0x7e) || c === 10 || c === 13) e++; else break; }
-  const lines = t.slice(start, e).split(/\r?\n/).filter(l => l.trim());
-  const cols = lines[0].split(',');
-  const map = {};
-  for (const line of lines.slice(1)) {
-    const p = line.split(',');
-    if (!/^\d+$/.test(p[0])) continue;
-    const o = {}; cols.forEach((c, i) => o[c] = p[i]);
-    map[p[0]] = o;
-  }
+  const map = parseItemTableText(t);
+  if (!map) throw new Error('tabela de itens não encontrada nos assets do TBH; atualize o app ou rode npm run extract-tables');
   _itemTable = map;
   return map;
 }

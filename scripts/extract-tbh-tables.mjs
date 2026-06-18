@@ -28,13 +28,22 @@ if (!gameDir) { console.error('TBH não encontrado. Defina TBH_GAME_DIR=<pasta>\
 
 // 1) tabela mestra (texto plano em sharedassets0.assets)
 const t = fs.readFileSync(path.join(gameDir, 'sharedassets0.assets'), 'latin1');
-const hdr = 'ItemKey,ITEMTYPE,GRADE,PARTS,GEARTYPE,GearGroup,ItemSynthesisType,NameKey,DescriptionKey,GearKey,DropKey,DropCooldown,Level,IsSteamItem,IconPath,IsDeletedInServer,IsCanExchangeMarketable';
-const s = t.indexOf(hdr);
-let e = s; while (e < t.length) { const c = t.charCodeAt(e); if ((c >= 0x20 && c <= 0x7e) || c === 10 || c === 13) e++; else break; }
-const lines = t.slice(s, e).split(/\r?\n/).filter(l => l.trim());
-const cols = lines[0].split(',');
+const s = t.indexOf('ItemKey,ITEMTYPE,');
+if (s < 0) {
+  console.error('Tabela de itens não encontrada em sharedassets0.assets.');
+  process.exit(1);
+}
+let e = s; while (e < t.length) { const c = t.charCodeAt(e); if ((c >= 0x20 && c <= 0x7e) || c === 10 || c === 13 || c === 9) e++; else break; }
+const lines = t.slice(s, e).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+const cols = lines[0].split(',').map(c => c.trim());
+for (const col of ['ItemKey', 'ITEMTYPE', 'GRADE', 'GEARTYPE', 'NameKey', 'Level', 'IsSteamItem', 'IconPath', 'IsCanExchangeMarketable']) {
+  if (!cols.includes(col)) {
+    console.error(`Tabela de itens encontrada, mas sem coluna obrigatória: ${col}`);
+    process.exit(1);
+  }
+}
 const tableMap = {};
-for (const line of lines.slice(1)) { const p = line.split(','); if (!/^\d+$/.test(p[0])) continue; const o = {}; cols.forEach((c, i) => o[c] = p[i]); tableMap[p[0]] = o; }
+for (const line of lines.slice(1)) { const p = line.split(','); if (!/^\d+$/.test(p[0] || '')) continue; const o = {}; cols.forEach((c, i) => o[c] = p[i] || ''); tableMap[p[0]] = o; }
 fs.writeFileSync(path.join(DATA, 'tbh-itemtable.json'), JSON.stringify(Object.values(tableMap)));
 console.log('tbh-itemtable.json:', Object.keys(tableMap).length, 'itens');
 

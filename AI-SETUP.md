@@ -86,6 +86,7 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 | `node` não é reconhecido | Node não instalado / PATH | Instalar Node LTS, reiniciar o PC |
 | `save do TBH não encontrado` | Save não existe | Abrir o jogo uma vez |
 | `assets do TBH não encontrados` | Steam em pasta incomum | Definir `set TBH_GAME_DIR=<pasta>\TaskBarHero_Data` antes de iniciar |
+| `tabela de itens não encontrada nos assets` | Versão antiga do app procurando cabeçalho antigo, ou TBH mudou a tabela interna de itens | Atualizar o app para a versão mais nova. Se persistir após update do jogo, rodar `npm run extract-tables` |
 | Porta 5260 ocupada ou `EACCES` | Outra instância rodando, ou porta dentro de faixa reservada do Windows (`netsh int ipv4 show excludedportrange protocol=tcp`) | O server tenta sozinho as 20 portas seguintes (5261…) e loga a escolhida; se já houver instância nossa rodando, só reabre o navegador nela. Forçar manualmente: `GSM_PORT` |
 | "Acesso negado" ao iniciar o .bat | Pasta protegida (Program Files, OneDrive, antivírus) ou .bat rodado de dentro do ZIP | O launcher detecta os dois casos e imprime a solução; instruir mover a pasta pra `Documentos`/`C:\giba-steam-market` ou extrair o ZIP |
 | Materiais sem nome | Falta tabela de localização | `pip install UnityPy` + `npm run extract-tables` (opcional) |
@@ -95,7 +96,7 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 
 ## Se o jogo for atualizado e parar de funcionar
 
-Uma atualização do TBH pode mudar a chave do save ou a tabela de itens. Para reextrair tudo:
+Uma atualização do TBH pode mudar a chave do save ou a tabela de itens. A versão atual lê a tabela por colunas obrigatórias, então colunas novas no meio da tabela não devem quebrar o app. Se mesmo assim parar de funcionar, reextraia tudo:
 
 ```bat
 npm run extract-tables
