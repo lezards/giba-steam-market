@@ -53,6 +53,10 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
    **jogo**, em texto plano nos assets, e é extraída automaticamente. Não é segredo do usuário.
 2. Lê a "tabela mestra" de itens dos assets do jogo (`sharedassets0.assets`): cada item tem
    `ItemKey → grade, tipo, nível, se é vendável`.
+   - Se `data/tbh-itemtable.json` / `data/tbh-itemnames.json` não existirem, a versão pública usa
+     `data/tbh-itemtable.seed.json` e `data/tbh-itemnames.seed.json` como fallback.
+   - Isso é intencional para usuários leigos do ZIP do GitHub: o baú deve mostrar diagnóstico e itens
+     sem exigir Python/UnityPy logo na primeira execução.
 3. Cruza com os preços do Mercado:
    - **Equipamentos** casam por `(tipo|grade|nível)` — ex: "Sword" + "Immortal" + "Lv80".
    - Se um equipamento negociável não veio na busca geral da Steam, o app monta o hash por
@@ -69,7 +73,7 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 
 - **Node.js 20+** — obrigatório. (`node --version` pra checar.)
 - **TBH instalado** e aberto pelo menos uma vez (pra existir o save).
-- **Python + UnityPy** — OPCIONAL, só pra mostrar o nome/preço dos materiais.
+- **Python + UnityPy** — OPCIONAL, só para regenerar tabelas após update do TBH.
 
 ---
 
@@ -78,9 +82,10 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 1. Pergunte se ele tem o Node instalado: peça pra rodar `node --version`.
    - Se der erro, mande instalar de https://nodejs.org (versão LTS) e **reiniciar o PC**.
 2. Peça pra ele dar dois cliques em `start-steam-market.bat` (ou rodar `npm start` na pasta).
-3. Confirme que abriu `http://localhost:5260` e que o baú apareceu.
-4. Se os materiais não tiverem nome, ofereça (opcional) instalar Python+UnityPy e rodar
-   `npm run extract-tables`.
+3. Confirme que abriu `http://localhost:5260` e que o painel **Meu Baú** apareceu.
+4. Se o CMD diz que leu itens, mas a lista parece vazia, peça para clicar em **📋 Diagnóstico** e colar
+   o texto na issue. Esse texto é seguro: tem contagens e fontes, não tem save bruto.
+5. Só ofereça Python+UnityPy se o diagnóstico mostrar tabelas antigas/quebradas após update do jogo.
 
 ---
 
@@ -93,6 +98,7 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 | `assets do TBH não encontrados` | Steam em pasta incomum | Definir `set TBH_GAME_DIR=<pasta>\TaskBarHero_Data` antes de iniciar |
 | `tabela de itens não encontrada nos assets` | Versão antiga do app procurando cabeçalho antigo, ou TBH mudou a tabela interna de itens | Atualizar o app para a versão mais nova. Se persistir após update do jogo, rodar `npm run extract-tables` |
 | Quantidade aparece multiplicada no baú | Versão antiga contava slots que apontavam para o mesmo `ItemUniqueId` | Atualizar o app; a versão atual conta cada `UniqueId` uma vez |
+| CMD diz que leu X itens mas a UI não mostra lista | Falta de nomes/tabela local, cache incompleto do mercado, ou todos os itens sem preço/listagem | Atualizar para a versão com seeds públicos. Pedir para clicar em **📋 Diagnóstico** e colar a saída na issue |
 | Equipamento/armadura aparece como "sem anúncio" | O item está no save e tem hash de mercado montado, mas a busca da Steam não trouxe listagem ativa | Não é erro de leitura. Peça para clicar em "💸 Ver ordens de compra" para consultar compradores imediatos |
 | Porta 5260 ocupada ou `EACCES` | Outra instância rodando, ou porta dentro de faixa reservada do Windows (`netsh int ipv4 show excludedportrange protocol=tcp`) | O server tenta sozinho as 20 portas seguintes (5261…) e loga a escolhida; se já houver instância nossa rodando, só reabre o navegador nela. Forçar manualmente: `GSM_PORT` |
 | "Acesso negado" ao iniciar o .bat | Pasta protegida (Program Files, OneDrive, antivírus) ou .bat rodado de dentro do ZIP | O launcher detecta os dois casos e imprime a solução; instruir mover a pasta pra `Documentos`/`C:\giba-steam-market` ou extrair o ZIP |
@@ -130,6 +136,7 @@ em texto legível. Defina-a manualmente com `set TBH_ES3_PASSWORD=<chave>`.
 
 - O app **não vende nem compra** nada — só mostra preços. A venda é feita pelo usuário na Steam.
 - Itens que **não têm listagem** na Steam aparecem como "sem anúncio" quando o app consegue montar o hash, mas não entram no valor estimado de venda (não há preço de anúncio — isso é correto).
+- A UI deve mostrar o estado do baú mesmo quando `items` vier vazio. Não trate isso como "save ausente".
 - Os valores são **estimativas** do preço atual de venda; o mercado muda o tempo todo.
 
 ---

@@ -100,6 +100,18 @@
   .liq-baixa{background:#e8784a}
   .liq-nenhuma{background:#555}
   .srow.has-buy{background:linear-gradient(90deg,rgba(58,209,122,.07),transparent)}
+  #diagBtn{background:#182036;border:1px solid var(--line);border-radius:8px;color:var(--dim);cursor:pointer;padding:7px 10px;font-size:12.5px;font-weight:600;white-space:nowrap}
+  #diagBtn:hover{color:var(--gold);border-color:var(--gold)}
+  .diagbox{padding:14px 16px;color:var(--dim);font-size:13px;line-height:1.55;text-align:left}
+  .diagbox b{color:var(--txt)}
+  .diagbox .ok{color:var(--green)}
+  .diagbox .warn{color:#e8c14a}
+  .diagbox .bad{color:#e8784a}
+  .diagchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;justify-content:center}
+  .diagchips span{border:1px solid var(--line);background:#111827;border-radius:7px;padding:3px 8px;color:var(--dim);font-size:12px}
+  #diagPanel{border-top:1px solid var(--line);padding:12px 16px;background:#0f1626}
+  #diagText{width:100%;min-height:150px;resize:vertical;background:#0b1020;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:10px;font:13px/1.45 Consolas,monospace}
+  .diagHint{color:var(--dim);font-size:12px;margin-bottom:8px}
   @media(max-width:640px){ .tp,.ls{display:none} th:nth-child(5),td:nth-child(5){display:none} }
 </style>
 </head>
@@ -133,9 +145,11 @@
         <span class="split" id="totSplit"></span>
       </div>
       <button id="ordBtn" title="Buscar as ordens de compra de cada item — quanto dá pra vender NA HORA">💸 Ver ordens de compra</button>
+      <button id="diagBtn" title="Copiar um diagnóstico seguro para pedir ajuda">📋 Diagnóstico</button>
       <span id="stashToggle" class="meta">▼</span>
     </div>
     <div id="ordSummary" hidden></div>
+    <div id="diagPanel" hidden></div>
     <div id="stashBody"></div>
   </section>
   <div id="status"><span class="spin"></span>Buscando itens no Mercado Steam…</div>
@@ -230,21 +244,79 @@ async function loadOrders(){
 
 async function loadAutoStash(){
   stashData=null; stashError=''; ordData=null; $('ordSummary').hidden=true;
+  $('diagPanel').hidden=true;
   try{
     const r=await fetch(`/api/stash?appid=${appid}`);
     const j=await r.json();
     if(!r.ok) throw new Error(j.error||r.status);
-    if(j.supported && j.found && j.items) stashData=j;
+    if(j.supported) stashData=j;
   }catch(e){ stashError=e.message||'erro desconhecido'; }
   renderStash();
+}
+
+function fmtUsd(c){ return '$'+((c||0)/100).toFixed(2); }
+function sourceLabel(src){
+  if(!src) return 'sem diagnóstico de fonte';
+  const t = src.itemTable ? `${src.itemTable}/${src.itemTableCount||0}` : 'sem tabela';
+  const n = src.itemNames ? `${src.itemNames}/${src.itemNamesCount||0}` : 'sem nomes';
+  return `tabela ${t} · nomes ${n}`;
+}
+function diagChipsHtml(j){
+  const src = j?.dataSources || {};
+  return `<div class="diagchips">
+    <span>${j?.totalItems||0} itens únicos lidos</span>
+    <span>${j?.slotRefs||0} slots vistos</span>
+    <span>${j?.duplicateSlotRefsIgnored||0} duplicados ignorados</span>
+    <span>${j?.pricedItems||0} com preço</span>
+    <span>${j?.unlistedItems||0} sem anúncio</span>
+    <span>${j?.unpricedItems||0} sem mercado</span>
+    <span>tabela: ${src.itemTable||'?'}</span>
+    <span>nomes: ${src.itemNames||'?'}</span>
+  </div>`;
+}
+function diagnosticText(){
+  const j=stashData;
+  if(!j) return `Giba Steam Market\nappid=${appid}\nstatus=sem leitura automática\nerro=${stashError||'nenhum'}`;
+  return [
+    'Giba Steam Market - diagnostico seguro',
+    `appid=${appid}`,
+    `supported=${!!j.supported}`,
+    `found=${!!j.found}`,
+    `needItems=${!!j.needItems}`,
+    `totalItems=${j.totalItems||0}`,
+    `slotRefs=${j.slotRefs||0}`,
+    `duplicateSlotRefsIgnored=${j.duplicateSlotRefsIgnored||0}`,
+    `pricedItems=${j.pricedItems||0}`,
+    `unlistedItems=${j.unlistedItems||0}`,
+    `unpricedItems=${j.unpricedItems||0}`,
+    `types=${j.types||0}`,
+    `ownedGearItems=${j.ownedGearItems||0}`,
+    `ownedMaterialItems=${j.ownedMaterialItems||0}`,
+    `itemTable=${j.dataSources?.itemTable||'?'}/${j.dataSources?.itemTableCount||0}`,
+    `itemNames=${j.dataSources?.itemNames||'?'}/${j.dataSources?.itemNamesCount||0}`,
+    `error=${stashError||'nenhum'}`,
+  ].join('\n');
 }
 
 function renderStash(){
   const sec=$('stash'), body=$('stashBody'); sec.hidden=false;
   // botão de ordens de compra só faz sentido no modo AUTO (baú do TBH lido)
-  $('ordBtn').style.display = stashData ? '' : 'none';
+  $('ordBtn').style.display = (stashData && stashData.items && stashData.items.length) ? '' : 'none';
+  $('diagBtn').style.display = (appid===3678970 || stashData || stashError) ? '' : 'none';
   // modo AUTO (save lido): usa stashData
   if(stashData){
+    if(!stashData.found){
+      body.innerHTML='<div class="diagbox"><b class="bad">Não achei o save do TBH neste Windows.</b><br>Abra o jogo uma vez para ele criar o save e depois clique em <b>Atualizar</b>. Se o jogo está instalado em outro usuário do Windows, rode o app no mesmo usuário.</div>';
+      $('totUsd').textContent='$0.00'; $('totBrl').textContent=''; $('totSplit').innerHTML='';
+      $('stashCount').textContent='save do TBH não encontrado';
+      return;
+    }
+    if(stashData.needItems){
+      body.innerHTML='<div class="diagbox"><b class="warn">Baú encontrado.</b><br>Agora estou esperando a lista de preços do Mercado Steam carregar. Deixe a janela preta aberta; quando o mercado terminar, clique em <b>Atualizar</b>.</div>';
+      $('totUsd').textContent='$0.00'; $('totBrl').textContent=''; $('totSplit').innerHTML='';
+      $('stashCount').textContent='save encontrado · aguardando preços do mercado';
+      return;
+    }
     // Quando as ordens já foram buscadas, reordena conforme o modo escolhido.
     // 'procura' = mais compradores primeiro (vende mais rápido).
     // 'preco'   = ordem de compra mais cara primeiro (maior retorno por unidade).
@@ -274,19 +346,22 @@ function renderStash(){
         <div class="sval${noListing?' muted':''}">${noListing?'sem anúncio':'$'+(tot/100).toFixed(2)}</div>
         ${obCell}
         <a class="srm" href="${r.url}" target="_blank" title="Abrir na Steam" style="text-decoration:none">↗</a></div>`;
-    }).join('') : '<div class="empty">Baú lido, mas nenhum item vendável no momento.</div>';
-    $('totUsd').textContent='$'+(stashData.totalCents/100).toFixed(2);
+    }).join('') : `<div class="diagbox"><b class="${stashData.totalItems?'warn':'ok'}">Baú automático lido.</b><br>${stashData.totalItems
+      ? 'Encontrei itens no save, mas nenhum deles entrou com preço/listagem agora. Isso pode acontecer se os itens não têm mercado, se o cache do mercado está incompleto ou se o jogo acabou de atualizar.'
+      : 'O save foi encontrado, mas não há itens no baú/inventário para listar.'}<br><br><b>O que fazer:</b> clique em <b>Atualizar</b>. Se continuar assim, clique em <b>Diagnóstico</b> e envie o texto na issue do GitHub.${diagChipsHtml(stashData)}</div>`;
+    $('totUsd').textContent=fmtUsd(stashData.totalCents);
     if(stashData.gearCents!=null){
       const extra = [
         stashData.unlistedItems ? `${stashData.unlistedItems} sem anúncio` : '',
         stashData.unpricedItems ? `${stashData.unpricedItems} sem mercado` : ''
       ].filter(Boolean).join(' · ');
-      $('totSplit').innerHTML=`⚔️ equipamentos <b>$${(stashData.gearCents/100).toFixed(2)}</b> &nbsp;·&nbsp; 🔩 materiais <b>$${(stashData.matCents/100).toFixed(2)}</b>${extra?' &nbsp;·&nbsp; '+extra:''}`;
+      $('totSplit').innerHTML=`⚔️ equipamentos <b>${fmtUsd(stashData.gearCents)}</b> &nbsp;·&nbsp; 🔩 materiais <b>${fmtUsd(stashData.matCents)}</b>${extra?' &nbsp;·&nbsp; '+extra:''}`;
     }
-    const bits = [`🔄 auto do save`, `${stashData.types} tipos`, `${stashData.pricedItems} itens únicos com preço`];
+    const bits = [`🔄 auto do save`, `${stashData.totalItems||0} itens lidos`, `${stashData.types||0} tipos na tela`, `${stashData.pricedItems||0} com preço`];
     if(stashData.ownedGearItems!=null) bits.push(`⚔️ ${stashData.ownedGearItems} equips lidos`);
     if(stashData.unlistedItems) bits.push(`${stashData.unlistedItems} sem anúncio`);
     if(stashData.unpricedItems) bits.push(`${stashData.unpricedItems} sem mercado`);
+    if(stashData.dataSources) bits.push(sourceLabel(stashData.dataSources));
     $('stashCount').textContent=bits.join(' · ');
     if(window._brlRate) $('totBrl').textContent='≈ R$ '+(stashData.totalCents/100*window._brlRate).toFixed(2).replace('.',',');
     return;
@@ -329,6 +404,24 @@ $('stashHead').addEventListener('click',e=>{
   body.style.display=hide?'none':''; $('stashToggle').textContent=hide?'▶':'▼';
 });
 $('ordBtn').addEventListener('click',e=>{ e.stopPropagation(); loadOrders(); });
+$('diagBtn').addEventListener('click',async e=>{
+  e.stopPropagation();
+  const txt=diagnosticText();
+  const panel=$('diagPanel');
+  panel.hidden=false;
+  panel.innerHTML=`<div class="diagHint">Diagnóstico seguro para colar na issue do GitHub. Não contém save bruto nem nomes dos seus itens.</div><textarea id="diagText" readonly>${txt.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</textarea>`;
+  setTimeout(()=>{ const ta=$('diagText'); ta.focus(); ta.select(); }, 0);
+  try{
+    await navigator.clipboard.writeText(txt);
+    const old=$('diagBtn').textContent;
+    $('diagBtn').textContent='✓ Copiado';
+    setTimeout(()=>$('diagBtn').textContent=old,900);
+  }catch{
+    const old=$('diagBtn').textContent;
+    $('diagBtn').textContent='Texto abaixo';
+    setTimeout(()=>$('diagBtn').textContent=old,1200);
+  }
+});
 $('ordSummary').addEventListener('click',e=>{
   const b=e.target.closest('button[data-sort]'); if(!b) return;
   ordSort=b.dataset.sort;
@@ -338,7 +431,7 @@ $('ordSummary').addEventListener('click',e=>{
 });
 // taxa USD→BRL a partir do item mais caro do baú (1 req)
 async function refreshBrlRate(){
-  const pool = stashData ? stashData.items : Object.keys(manual).map(byHash).filter(Boolean);
+  const pool = (stashData && stashData.items) ? stashData.items : Object.keys(manual).map(byHash).filter(Boolean);
   const h = pool.slice().sort((a,b)=>b.priceCents-a.priceCents)[0];
   if(!h) return;
   try{ const j=await(await fetch(`/api/price?appid=${appid}&name=${encodeURIComponent(h.hash)}`)).json();

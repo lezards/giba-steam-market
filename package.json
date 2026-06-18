@@ -1,6 +1,6 @@
 {
   "name": "giba-steam-market",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "Veja o valor do seu baú e os preços do Mercado Steam do TBH: Task Bar Hero, sem abrir a Steam. 100% read-only.",
   "type": "module",
   "bin": { "giba-steam-market": "server.mjs" },

@@ -5,6 +5,11 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
+> ### 🛠️ Atualização 18/06/2026 — modo leigo à prova de baú vazio
+> O app agora vem com uma tabela pública de fallback do TBH. Isso evita o caso em que o CMD mostra que o save tem itens, mas a tela não mostra o baú porque faltavam arquivos locais como `tbh-itemnames.json`.
+>
+> A tela também ganhou o botão **"📋 Diagnóstico"**. Se o baú não aparecer certinho, clique nele e cole o texto na issue do GitHub. O diagnóstico mostra só contagens e fontes de tabela — não expõe seu save nem seus dados pessoais.
+>
 > ### 🛠️ Atualização 18/06/2026 — equipamentos sem anúncio agora aparecem no baú
 > Alguns equipamentos do TBH existem no save e são negociáveis, mas não aparecem na busca geral do Mercado Steam quando não há anúncio ativo de venda. Antes eles caíam como "sem mercado" e parecia que o app só tinha lido materiais.
 >
@@ -35,6 +40,7 @@
 O que ele mostra:
 
 - 💰 **O valor total do seu inventário** (equipamentos + materiais), lido direto do save do jogo.
+- 📋 **Diagnóstico seguro** quando o baú não aparece como esperado, pronto para colar numa issue.
 - ⚔️ **Equipamentos sem anúncio ativo** aparecem no baú como "sem anúncio", sem inflar o total com chute.
 - 💸 **Quem quer comprar seus itens e por quanto** — pra vender rápido (botão "Ver ordens de compra").
 - 🔎 **Os preços do Mercado da Steam** de todos os itens, do mais caro pro mais barato, com busca.
@@ -122,8 +128,9 @@ A janela preta agora **te diz o que fazer** na maioria dos erros. Mas aqui vai a
 | **"assets do TBH não encontrados"** | Jogo instalado em pasta incomum — veja **"Steam em outra pasta"** abaixo. |
 | **"tabela de itens não encontrada nos assets"** | Baixe a versão mais nova do app. O TBH mudou a tabela interna; a versão atual aceita colunas novas automaticamente. Se persistir, rode `npm run extract-tables`. |
 | Quantidade do baú parece multiplicada | Baixe a versão mais nova. A versão atual ignora referências duplicadas do save e conta por item único. |
+| CMD diz que leu itens, mas o baú parece vazio na tela | Baixe a versão mais nova. Agora o app mostra "Baú automático lido" com diagnóstico, mesmo quando nenhum item casou com preço. Clique em **"📋 Diagnóstico"** e cole na issue. |
 | Armaduras/equipamentos aparecem como "sem anúncio" | Normal: o item foi lido do seu baú, mas a busca da Steam não tem anúncio ativo de venda agora. Use "💸 Ver ordens de compra" para ver se existe comprador imediato. |
-| Materiais sem nome na lista | Normal, é opcional — veja **"Mostrar nomes dos materiais"** abaixo. |
+| Materiais sem nome na lista | Baixe a versão nova primeiro. Ela já vem com uma base pública de nomes. Se o TBH atualizou e quebrou nomes, veja **"Regerar tabelas após update"** abaixo. |
 | Página não abre sozinha | Olhe a janela preta: ela mostra o endereço (ex: `http://localhost:5260`). Digite ele no navegador. |
 
 Nada disso resolveu? **[Abra uma issue aqui](../../issues)** contando o que apareceu na janela preta (print ajuda muito!) que a gente te ajuda. 🤝
@@ -139,11 +146,11 @@ start-steam-market.bat
 
 ---
 
-## 🔩 Mostrar os nomes dos materiais (opcional)
+## 🔩 Regerar tabelas após update do TBH
 
-Os **equipamentos** (espadas, armaduras) já aparecem com preço sem configurar nada.
+A versão atual já vem com uma base pública de nomes/tabela do TBH para funcionar direto no ZIP do GitHub, sem Python.
 
-Os **materiais** (Void Iron, Phoenix Ash…) têm nome próprio guardado de forma compactada no jogo. Pra destravar os nomes deles, rode uma vez:
+Só use estes passos se o TBH atualizar e os nomes/preços voltarem a sair errado:
 
 1. Instale o Python: 👉 https://www.python.org/downloads (marque "Add Python to PATH" na instalação).
 2. Abra a janela preta na pasta do app e rode:
@@ -151,9 +158,7 @@ Os **materiais** (Void Iron, Phoenix Ash…) têm nome próprio guardado de form
    pip install UnityPy
    npm run extract-tables
    ```
-3. Reinicie o app. Agora os materiais aparecem com nome e preço também.
-
-Sem isso, o app funciona normal — só não soma os materiais que têm nome próprio.
+3. Reinicie o app. Ele vai preferir as tabelas locais recém-extraídas.
 
 ---
 
@@ -171,18 +176,19 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 
 ## 🛠️ Pra quem é técnico
 
-- **Stack:** Node puro (sem dependências), servidor HTTP + UI HTML única. Python+UnityPy só pra extrair nomes de materiais (opcional).
+- **Stack:** Node puro (sem dependências), servidor HTTP + UI HTML única. Python+UnityPy só para regenerar tabelas após update do TBH.
 - **Launcher:** o `.bat` valida ambiente (ZIP extraído, permissão de escrita), resolve/instala Node via winget e sobe o server. O server faz fallback de porta (5260→+20) quando a base cai em faixa reservada do Windows (`netsh int ipv4 show excludedportrange`) e abre o browser na porta real.
 - **Preços:** endpoints públicos `steamcommunity.com/market/search/render` e `/priceoverview`, com throttle e cache em disco.
 - **Ordens de compra:** endpoint público `market/orderbook?q=Load&qp=[appid,"hash"]` (usado pela UI nova da Steam) — retorna maior ordem de compra, menor ordem de venda e nº de ordens, sem precisar de `item_nameid`. Batch dos itens do baú no server (`/api/stash-orders`, throttle ~650ms, cache 3min).
 - **Save:** Easy Save 3 (AES-128-CBC, PBKDF2-SHA1). A chave fica em texto plano nos assets do jogo e é auto-extraída.
-- **Mapeamento item→preço:** tabela mestra dos assets (`ItemKey → grade/tipo/nível`) casa com o `type` do mercado; quando equipamento negociável não aparece na busca, o app monta o hash por `NameKey + Grade + A` e mostra como "sem anúncio"; materiais via localização Unity.
+- **Mapeamento item→preço:** tabela mestra dos assets (`ItemKey → grade/tipo/nível`) casa com o `type` do mercado; quando equipamento negociável não aparece na busca, o app monta o hash por `NameKey + Grade + A` e mostra como "sem anúncio"; materiais via localização Unity. O ZIP público inclui `data/tbh-itemtable.seed.json` e `data/tbh-itemnames.seed.json` como fallback.
 - Detalhes em [`AI-SETUP.md`](AI-SETUP.md).
 
 ---
 
 ## 📜 Histórico de atualizações
 
+- **18/06/2026** — Modo leigo: fallback público de tabela/nomes, diagnóstico seguro na UI e logs do baú no CMD.
 - **18/06/2026** — Contagem do baú por item único (`UniqueId`), ignorando referências duplicadas do save.
 - **18/06/2026** — Equipamentos negociáveis sem anúncio ativo agora aparecem no baú como "sem anúncio" e podem ser consultados nas ordens de compra.
 - **18/06/2026** — Correção do erro "tabela de itens não encontrada nos assets" após mudança no formato da tabela interna do TBH.

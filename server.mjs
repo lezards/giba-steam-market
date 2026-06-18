@@ -24,6 +24,27 @@ const log = (msg) => {
   try { fs.appendFileSync(path.join(DATA, 'app.log'), line + '\n'); } catch {}
 };
 
+const throttledLogs = new Map();
+function logThrottled(key, msg, ms = 30_000) {
+  const now = Date.now();
+  const last = throttledLogs.get(key) || 0;
+  if (now - last < ms) return;
+  throttledLogs.set(key, now);
+  log(msg);
+}
+
+function logStashSummary(stash) {
+  const src = stash.dataSources
+    ? `tabela=${stash.dataSources.itemTable}/${stash.dataSources.itemTableCount}, nomes=${stash.dataSources.itemNames}/${stash.dataSources.itemNamesCount}`
+    : 'fontes=desconhecidas';
+  const msg = `BAU OK: ${stash.totalItems || 0} itens unicos, ${stash.pricedItems || 0} com preco, ${stash.unlistedItems || 0} sem anuncio, ${stash.unpricedItems || 0} sem mercado, ${stash.types || 0} tipos na tela, duplicados ignorados=${stash.duplicateSlotRefsIgnored || 0}, ${src}`;
+  const key = `stash:${stash.totalItems}:${stash.pricedItems}:${stash.unlistedItems}:${stash.unpricedItems}:${stash.types}:${src}`;
+  logThrottled(key, msg, 15_000);
+  if ((stash.totalItems || 0) > 0 && !(stash.items || []).length) {
+    logThrottled(`stash-empty:${key}`, 'BAU AVISO: o save foi lido, mas nenhum item entrou na lista. A tela deve mostrar o diagnostico; se isso acontecer no ZIP publico, baixe a ultima versao.', 60_000);
+  }
+}
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const cachePath = (appid) => path.join(DATA, `items-${appid}.json`);
 
@@ -226,10 +247,18 @@ const server = http.createServer(async (req, res) => {
       // só TBH tem leitura de save; outros appids retornam "não suportado"
       const appid = Number(u.searchParams.get('appid')) || DEFAULT_APPID;
       if (appid !== DEFAULT_APPID) return send(200, { supported: false });
-      if (!tbhSave.saveExists()) return send(200, { supported: true, found: false });
+      if (!tbhSave.saveExists()) {
+        logThrottled('stash:no-save', 'BAU: save do TBH nao encontrado. Abra o jogo uma vez e depois clique Atualizar.', 60_000);
+        return send(200, { supported: true, found: false });
+      }
       const market = readListCache(appid);
-      if (!market) return send(200, { supported: true, found: true, needItems: true });
-      return send(200, { supported: true, found: true, ...tbhSave.readStash(market.items) });
+      if (!market) {
+        logThrottled('stash:need-market', 'BAU: save encontrado; aguardando a lista de precos do Mercado Steam carregar.', 30_000);
+        return send(200, { supported: true, found: true, needItems: true });
+      }
+      const stash = tbhSave.readStash(market.items);
+      logStashSummary(stash);
+      return send(200, { supported: true, found: true, ...stash });
     }
     send(404, { error: 'not found' });
   } catch (e) {

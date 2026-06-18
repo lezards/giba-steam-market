@@ -10,6 +10,10 @@ import zlib from 'node:zlib';
 const SAVE_DIR = path.join(os.homedir(), 'AppData/LocalLow/TesseractStudio/TaskbarHero');
 const SAVE_FILE = path.join(SAVE_DIR, 'SaveFile_Live.es3');
 const SAVE_NAMES_DIR = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), 'data');
+const ITEM_TABLE_CACHE = path.join(SAVE_NAMES_DIR, 'tbh-itemtable.json');
+const ITEM_TABLE_SEED = path.join(SAVE_NAMES_DIR, 'tbh-itemtable.seed.json');
+const ITEM_NAMES_CACHE = path.join(SAVE_NAMES_DIR, 'tbh-itemnames.json');
+const ITEM_NAMES_SEED = path.join(SAVE_NAMES_DIR, 'tbh-itemnames.seed.json');
 // Senha de descriptografia do save (Easy Save 3). NÃO é segredo do usuário — é uma chave do JOGO,
 // guardada em texto plano dentro dos assets do TBH. A gente extrai sozinho (à prova de updates).
 // Pode forçar via env TBH_ES3_PASSWORD se a auto-extração falhar.
@@ -114,21 +118,48 @@ function parseItemTableText(text) {
 
 // Tabela mestra de itens do jogo: ItemKey -> { GRADE, GEARTYPE, Level, IsCanExchangeMarketable, ... }
 let _itemTable = null;
+let _itemTableSource = 'missing';
+let _itemTableCount = 0;
+function itemTableFromArray(arr) {
+  const map = {};
+  for (const r of arr || []) if (r?.ItemKey) map[r.ItemKey] = r;
+  return map;
+}
+
+function setItemTable(map, source) {
+  _itemTable = map;
+  _itemTableSource = source;
+  _itemTableCount = Object.keys(map).length;
+  return _itemTable;
+}
+
 function loadItemTable() {
   if (_itemTable) return _itemTable;
   // 1) usa cache gerado por scripts/extract-tbh-tables.mjs se existir (rápido)
-  const cacheP = path.join(SAVE_NAMES_DIR, 'tbh-itemtable.json');
-  if (fs.existsSync(cacheP)) {
-    try { const arr = JSON.parse(fs.readFileSync(cacheP, 'utf8')); _itemTable = {}; for (const r of arr) _itemTable[r.ItemKey] = r; return _itemTable; } catch {}
+  if (fs.existsSync(ITEM_TABLE_CACHE)) {
+    try {
+      const map = itemTableFromArray(JSON.parse(fs.readFileSync(ITEM_TABLE_CACHE, 'utf8')));
+      if (Object.keys(map).length) return setItemTable(map, 'cache');
+    } catch {}
   }
   // 2) senão extrai direto dos assets do jogo (texto plano, sem Python)
   const assetPath = ASSET_CANDIDATES.find(p => fs.existsSync(p));
+  if (assetPath) {
+    try {
+      const map = parseItemTableText(fs.readFileSync(assetPath, 'latin1'));
+      if (map && Object.keys(map).length) return setItemTable(map, 'assets');
+    } catch {}
+  }
+  // 3) fallback público empacotado no GitHub. Evita tela vazia para usuário leigo
+  // quando a extração local de tabelas/UnityPy ainda não foi feita.
+  if (fs.existsSync(ITEM_TABLE_SEED)) {
+    try {
+      const map = itemTableFromArray(JSON.parse(fs.readFileSync(ITEM_TABLE_SEED, 'utf8')));
+      if (Object.keys(map).length) return setItemTable(map, 'seed');
+    } catch {}
+  }
   if (!assetPath) throw new Error('assets do TBH não encontrados (jogo instalado em outra pasta? defina TBH_GAME_DIR)');
-  const t = fs.readFileSync(assetPath, 'latin1');
-  const map = parseItemTableText(t);
-  if (!map) throw new Error('tabela de itens não encontrada nos assets do TBH; atualize o app ou rode npm run extract-tables');
-  _itemTable = map;
-  return map;
+  throw new Error('tabela de itens não encontrada nos assets do TBH; atualize o app ou rode npm run extract-tables');
 }
 
 // Índice do mercado por (GEARTYPE|GRADE|Level) -> item (equipamentos).
@@ -200,10 +231,25 @@ function syntheticGearMarketItem(row, names) {
 
 // ItemKey -> nome localizado (materiais). Gerado por scripts/extract-tbh-tables.mjs.
 let _itemNames = null;
+let _itemNamesSource = 'missing';
+let _itemNamesCount = 0;
 function loadItemNames() {
   if (_itemNames) return _itemNames;
-  const p = path.join(SAVE_NAMES_DIR, 'tbh-itemnames.json');
-  try { _itemNames = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { _itemNames = {}; }
+  try {
+    _itemNames = JSON.parse(fs.readFileSync(ITEM_NAMES_CACHE, 'utf8'));
+    if (Object.keys(_itemNames).length) _itemNamesSource = 'cache';
+    else throw new Error('empty item names cache');
+  } catch {
+    try {
+      _itemNames = JSON.parse(fs.readFileSync(ITEM_NAMES_SEED, 'utf8'));
+      if (Object.keys(_itemNames).length) _itemNamesSource = 'seed';
+      else throw new Error('empty item names seed');
+    } catch {
+      _itemNames = {};
+      _itemNamesSource = 'missing';
+    }
+  }
+  _itemNamesCount = Object.keys(_itemNames).length;
   return _itemNames;
 }
 
@@ -318,6 +364,12 @@ export function readStash(marketItems) {
     unlistedItems: unlisted,
     unpricedItems: unpriced,
     types: list.length,
+    dataSources: {
+      itemTable: _itemTableSource,
+      itemTableCount: _itemTableCount,
+      itemNames: _itemNamesSource,
+      itemNamesCount: _itemNamesCount,
+    },
     items: list,
     unlistedSummary: Object.entries(unlistedSummary).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
     unknownSummary: Object.entries(unknown).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
