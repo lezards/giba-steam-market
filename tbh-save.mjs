@@ -45,7 +45,20 @@ function findGameDataDir() {
 }
 const ASSET_CANDIDATES = (() => { const d = findGameDataDir(); return d ? [path.join(d, 'sharedassets0.assets')] : []; })();
 
-const GRADE_MAP = { DIVINE:'Divine', ARCANA:'Arcana', IMMORTAL:'Immortal', LEGENDARY:'Legendary', BEYOND:'Beyond', EPIC:'Epic', RARE:'Rare' };
+const TBH_APPID = 3678970;
+const GRADE_MAP = {
+  COSMIC:'Cosmic',
+  DIVINE:'Divine',
+  CELESTIAL:'Celestial',
+  ARCANA:'Arcana',
+  IMMORTAL:'Immortal',
+  LEGENDARY:'Legendary',
+  BEYOND:'Beyond',
+  EPIC:'Epic',
+  RARE:'Rare',
+  UNCOMMON:'Uncommon',
+  COMMON:'Common',
+};
 const ITEM_TABLE_REQUIRED_COLUMNS = [
   'ItemKey',
   'ITEMTYPE',
@@ -136,6 +149,55 @@ function buildMarketByName(marketItems) {
   return idx;
 }
 
+function titleToken(s) {
+  const t = String(s || '').trim();
+  if (!t) return '';
+  return t[0].toUpperCase() + t.slice(1).toLowerCase();
+}
+
+function boolTrue(v) {
+  return String(v || '').toLowerCase() === 'true';
+}
+
+function nameFromNameKey(row, names) {
+  if (!row) return null;
+  if (names[row.ItemKey]) return names[row.ItemKey];
+  const m = String(row.NameKey || '').match(/\d+/);
+  return m ? (names[m[0]] || null) : null;
+}
+
+function gearTypeText(row) {
+  return `${titleToken(row.GEARTYPE)} - Lv. ${row.Level}`;
+}
+
+function gearMarketHash(row, names) {
+  if (!row?.GEARTYPE || !row?.GRADE || !row?.Level) return null;
+  if (!boolTrue(row.IsCanExchangeMarketable)) return null;
+  const baseName = nameFromNameKey(row, names);
+  if (!baseName) return null;
+  const grade = GRADE_MAP[String(row.GRADE).toUpperCase()] || titleToken(row.GRADE);
+  // O sufixo A corresponde às linhas marketable atuais do TBH. As variações B existem
+  // na tabela do jogo, mas aparecem como não negociáveis no mercado Steam.
+  return `${baseName} (${grade}) A`;
+}
+
+function syntheticGearMarketItem(row, names) {
+  const hash = gearMarketHash(row, names);
+  if (!hash) return null;
+  return {
+    name: hash,
+    hash,
+    priceCents: 0,
+    priceText: 'sem anúncio',
+    listings: 0,
+    type: gearTypeText(row),
+    color: '',
+    icon: '',
+    url: `https://steamcommunity.com/market/listings/${TBH_APPID}/${encodeURIComponent(hash)}`,
+    hasMarketListing: false,
+  };
+}
+
 // ItemKey -> nome localizado (materiais). Gerado por scripts/extract-tbh-tables.mjs.
 let _itemNames = null;
 function loadItemNames() {
@@ -183,27 +245,57 @@ export function readStash(marketItems) {
   const mkByName = buildMarketByName(marketItems);
 
   const agg = {}; // marketHash -> { name, priceCents, qty, kind }
-  let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0;
+  let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0, unlisted = 0;
+  let ownedGearItems = 0, ownedMaterialItems = 0, ownedOtherItems = 0;
   const unknown = {};
+  const unlistedSummary = {};
 
   for (const slot of slots) {
     const it = byId[slot.ItemUniqueId];
     if (!it) continue;
     const r = table[it.ItemKey];
     let m = null, kind = null;
+    const localizedName = names[it.ItemKey];
+    if (r && r.GEARTYPE && r.Level) ownedGearItems++;
+    else if (localizedName) ownedMaterialItems++;
+    else ownedOtherItems++;
+
     // 1) equipamento: casa por (geartype|grade|level)
-    if (r && r.GEARTYPE && r.Level) { m = mkidx[`${r.GEARTYPE}|${r.GRADE}|${r.Level}`.toUpperCase()]; kind = 'gear'; }
+    if (r && r.GEARTYPE && r.Level) {
+      const gearHash = gearMarketHash(r, names);
+      m = mkidx[`${r.GEARTYPE}|${r.GRADE}|${r.Level}`.toUpperCase()]
+        || (gearHash ? mkByName[gearHash.toLowerCase()] : null)
+        || syntheticGearMarketItem(r, names);
+      kind = 'gear';
+    }
     // 2) material: casa por nome localizado
-    if (!m) { const nm = names[it.ItemKey]; if (nm) { m = mkByName[nm.toLowerCase()]; if (m) kind = 'material'; } }
+    if (!m) { const nm = localizedName; if (nm) { m = mkByName[nm.toLowerCase()]; if (m) kind = 'material'; } }
     if (m) {
       const k = m.hash;
-      if (!agg[k]) agg[k] = { name: m.name, hash: m.hash, priceCents: m.priceCents, priceText: m.priceText, type: m.type, icon: m.icon, color: m.color, url: m.url, qty: 0, kind };
+      if (!agg[k]) agg[k] = {
+        name: m.name,
+        hash: m.hash,
+        priceCents: m.priceCents,
+        priceText: m.priceText,
+        type: m.type,
+        icon: m.icon,
+        color: m.color,
+        url: m.url,
+        qty: 0,
+        kind,
+        hasMarketListing: m.hasMarketListing !== false,
+      };
       agg[k].qty++;
-      totalCents += m.priceCents; priced++;
-      if (kind === 'material') matCents += m.priceCents; else gearCents += m.priceCents;
+      if (m.hasMarketListing === false) {
+        unlisted++;
+        unlistedSummary[m.name] = (unlistedSummary[m.name] || 0) + 1;
+      } else {
+        totalCents += m.priceCents; priced++;
+        if (kind === 'material') matCents += m.priceCents; else gearCents += m.priceCents;
+      }
     } else {
       unpriced++;
-      const nm = names[it.ItemKey];
+      const nm = localizedName;
       const label = nm || (r ? `${r.GEARTYPE || r.ITEMTYPE} ${r.GRADE} Lv${r.Level}`.trim() : `ItemKey ${it.ItemKey}`);
       unknown[label] = (unknown[label] || 0) + 1;
     }
@@ -219,10 +311,15 @@ export function readStash(marketItems) {
     totalItems: slots.length,
     slotRefs: slotRefs.length,
     duplicateSlotRefsIgnored,
+    ownedGearItems,
+    ownedMaterialItems,
+    ownedOtherItems,
     pricedItems: priced,
+    unlistedItems: unlisted,
     unpricedItems: unpriced,
     types: list.length,
     items: list,
+    unlistedSummary: Object.entries(unlistedSummary).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
     unknownSummary: Object.entries(unknown).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
   };
 }

@@ -5,6 +5,11 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
+> ### 🛠️ Atualização 18/06/2026 — equipamentos sem anúncio agora aparecem no baú
+> Alguns equipamentos do TBH existem no save e são negociáveis, mas não aparecem na busca geral do Mercado Steam quando não há anúncio ativo de venda. Antes eles caíam como "sem mercado" e parecia que o app só tinha lido materiais.
+>
+> Agora o app monta o nome de mercado do equipamento pela tabela do jogo (`NameKey + Grade + A`) e mostra esses itens no baú como **"sem anúncio"**. Eles não entram no valor estimado de venda enquanto a Steam não devolver preço, mas o botão **"💸 Ver ordens de compra"** consegue consultar esses hashes e mostrar se existe comprador esperando.
+>
 > ### 🛠️ Atualização 18/06/2026 — contagem real do baú por item único
 > Corrigido um caso em que o save do TBH mantinha várias posições apontando para o mesmo item interno. A versão anterior contava cada posição e podia mostrar `×20` quando o jogador tinha 1 item real.
 >
@@ -30,6 +35,7 @@
 O que ele mostra:
 
 - 💰 **O valor total do seu inventário** (equipamentos + materiais), lido direto do save do jogo.
+- ⚔️ **Equipamentos sem anúncio ativo** aparecem no baú como "sem anúncio", sem inflar o total com chute.
 - 💸 **Quem quer comprar seus itens e por quanto** — pra vender rápido (botão "Ver ordens de compra").
 - 🔎 **Os preços do Mercado da Steam** de todos os itens, do mais caro pro mais barato, com busca.
 - 🪙 Preço em **dólar e em real (R$)**.
@@ -116,6 +122,7 @@ A janela preta agora **te diz o que fazer** na maioria dos erros. Mas aqui vai a
 | **"assets do TBH não encontrados"** | Jogo instalado em pasta incomum — veja **"Steam em outra pasta"** abaixo. |
 | **"tabela de itens não encontrada nos assets"** | Baixe a versão mais nova do app. O TBH mudou a tabela interna; a versão atual aceita colunas novas automaticamente. Se persistir, rode `npm run extract-tables`. |
 | Quantidade do baú parece multiplicada | Baixe a versão mais nova. A versão atual ignora referências duplicadas do save e conta por item único. |
+| Armaduras/equipamentos aparecem como "sem anúncio" | Normal: o item foi lido do seu baú, mas a busca da Steam não tem anúncio ativo de venda agora. Use "💸 Ver ordens de compra" para ver se existe comprador imediato. |
 | Materiais sem nome na lista | Normal, é opcional — veja **"Mostrar nomes dos materiais"** abaixo. |
 | Página não abre sozinha | Olhe a janela preta: ela mostra o endereço (ex: `http://localhost:5260`). Digite ele no navegador. |
 
@@ -169,7 +176,7 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 - **Preços:** endpoints públicos `steamcommunity.com/market/search/render` e `/priceoverview`, com throttle e cache em disco.
 - **Ordens de compra:** endpoint público `market/orderbook?q=Load&qp=[appid,"hash"]` (usado pela UI nova da Steam) — retorna maior ordem de compra, menor ordem de venda e nº de ordens, sem precisar de `item_nameid`. Batch dos itens do baú no server (`/api/stash-orders`, throttle ~650ms, cache 3min).
 - **Save:** Easy Save 3 (AES-128-CBC, PBKDF2-SHA1). A chave fica em texto plano nos assets do jogo e é auto-extraída.
-- **Mapeamento item→preço:** tabela mestra dos assets (`ItemKey → grade/tipo/nível`) casa com o `type` do mercado; materiais via localização Unity.
+- **Mapeamento item→preço:** tabela mestra dos assets (`ItemKey → grade/tipo/nível`) casa com o `type` do mercado; quando equipamento negociável não aparece na busca, o app monta o hash por `NameKey + Grade + A` e mostra como "sem anúncio"; materiais via localização Unity.
 - Detalhes em [`AI-SETUP.md`](AI-SETUP.md).
 
 ---
@@ -177,6 +184,7 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 ## 📜 Histórico de atualizações
 
 - **18/06/2026** — Contagem do baú por item único (`UniqueId`), ignorando referências duplicadas do save.
+- **18/06/2026** — Equipamentos negociáveis sem anúncio ativo agora aparecem no baú como "sem anúncio" e podem ser consultados nas ordens de compra.
 - **18/06/2026** — Correção do erro "tabela de itens não encontrada nos assets" após mudança no formato da tabela interna do TBH.
 - **14/06/2026** — Botão "💸 Ver ordens de compra": mostra quem quer comprar seus itens e por quanto, pra vender rápido. Ordenação por procura ou por preço.
 - **12/06/2026** — Instalação automática (o app instala o Node.js sozinho) e correção do erro "Acesso Negado" (porta bloqueada pelo Windows). Mensagens de erro em português.

@@ -55,6 +55,9 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
    `ItemKey → grade, tipo, nível, se é vendável`.
 3. Cruza com os preços do Mercado:
    - **Equipamentos** casam por `(tipo|grade|nível)` — ex: "Sword" + "Immortal" + "Lv80".
+   - Se um equipamento negociável não veio na busca geral da Steam, o app monta o hash por
+     `NameKey + Grade + A` e mostra como **sem anúncio**. Isso prova que o item foi lido, mas evita
+     inventar preço quando não há listagem ativa.
    - **Materiais** casam por **nome** (ex: "Void Iron"), que vem da tabela de localização Unity
      (opcional, precisa de Python+UnityPy).
 4. A contagem do baú deve ser feita por `UniqueId` do item. O save pode manter várias posições
@@ -90,6 +93,7 @@ Navegador (UI) ──> servidor Node (server.mjs, porta 5260)
 | `assets do TBH não encontrados` | Steam em pasta incomum | Definir `set TBH_GAME_DIR=<pasta>\TaskBarHero_Data` antes de iniciar |
 | `tabela de itens não encontrada nos assets` | Versão antiga do app procurando cabeçalho antigo, ou TBH mudou a tabela interna de itens | Atualizar o app para a versão mais nova. Se persistir após update do jogo, rodar `npm run extract-tables` |
 | Quantidade aparece multiplicada no baú | Versão antiga contava slots que apontavam para o mesmo `ItemUniqueId` | Atualizar o app; a versão atual conta cada `UniqueId` uma vez |
+| Equipamento/armadura aparece como "sem anúncio" | O item está no save e tem hash de mercado montado, mas a busca da Steam não trouxe listagem ativa | Não é erro de leitura. Peça para clicar em "💸 Ver ordens de compra" para consultar compradores imediatos |
 | Porta 5260 ocupada ou `EACCES` | Outra instância rodando, ou porta dentro de faixa reservada do Windows (`netsh int ipv4 show excludedportrange protocol=tcp`) | O server tenta sozinho as 20 portas seguintes (5261…) e loga a escolhida; se já houver instância nossa rodando, só reabre o navegador nela. Forçar manualmente: `GSM_PORT` |
 | "Acesso negado" ao iniciar o .bat | Pasta protegida (Program Files, OneDrive, antivírus) ou .bat rodado de dentro do ZIP | O launcher detecta os dois casos e imprime a solução; instruir mover a pasta pra `Documentos`/`C:\giba-steam-market` ou extrair o ZIP |
 | Materiais sem nome | Falta tabela de localização | `pip install UnityPy` + `npm run extract-tables` (opcional) |
@@ -125,7 +129,7 @@ em texto legível. Defina-a manualmente com `set TBH_ES3_PASSWORD=<chave>`.
 ## Limites importantes (não prometa isso ao usuário)
 
 - O app **não vende nem compra** nada — só mostra preços. A venda é feita pelo usuário na Steam.
-- Materiais que **não têm listagem** na Steam não entram no valor (não há preço pra eles — isso é correto).
+- Itens que **não têm listagem** na Steam aparecem como "sem anúncio" quando o app consegue montar o hash, mas não entram no valor estimado de venda (não há preço de anúncio — isso é correto).
 - Os valores são **estimativas** do preço atual de venda; o mercado muda o tempo todo.
 
 ---

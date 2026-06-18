@@ -66,6 +66,7 @@
   .qty button{padding:3px 9px;border-radius:6px;font-size:15px;line-height:1}
   .qty span{min-width:26px;text-align:center;font-weight:600}
   .sval{color:var(--green);font-weight:700;min-width:78px;text-align:right;white-space:nowrap}
+  .sval.muted{color:var(--dim);font-size:12px}
   .srm{color:var(--dim);background:none;border:none;cursor:pointer;font-size:17px;padding:2px 6px}
   .srm:hover{color:#ff6b6b}
   .add{background:none;border:1px solid var(--line);border-radius:7px;color:var(--gold);cursor:pointer;padding:4px 9px;font-size:15px;line-height:1}
@@ -260,22 +261,33 @@ function renderStash(){
     body.innerHTML = it.length ? it.map(r=>{
       const tot=r.priceCents*r.qty;
       const ki=r.kind==='material'?'🔩':'⚔️';
+      const noListing = r.hasMarketListing === false;
+      const priceNote = noListing ? 'sem anúncio de venda · tente ordens de compra' : `${r.priceText} un.`;
       const o = ordData && ordData[r.hash];
       const hasBuy = o && o.maxBuyCents>0;
       const obCell = ordData ? `<div class="ob">${ obCellHtml(o) }</div>` : '';
       return `<div class="srow${hasBuy?' has-buy':''}">
         <span class="kind" title="${r.kind==='material'?'material':'equipamento'}">${ki}</span>
         ${r.icon?`<img loading="lazy" src="${r.icon}">`:'<div style="width:34px"></div>'}
-        <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${r.type} · ${r.priceText} un.</small></div>
+        <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${r.type} · ${priceNote}</small></div>
         <div class="qty" style="cursor:default"><span>×${r.qty}</span></div>
-        <div class="sval">$${(tot/100).toFixed(2)}</div>
+        <div class="sval${noListing?' muted':''}">${noListing?'sem anúncio':'$'+(tot/100).toFixed(2)}</div>
         ${obCell}
         <a class="srm" href="${r.url}" target="_blank" title="Abrir na Steam" style="text-decoration:none">↗</a></div>`;
     }).join('') : '<div class="empty">Baú lido, mas nenhum item vendável no momento.</div>';
     $('totUsd').textContent='$'+(stashData.totalCents/100).toFixed(2);
-    if(stashData.gearCents!=null) $('totSplit').innerHTML=`⚔️ equipamentos <b>$${(stashData.gearCents/100).toFixed(2)}</b> &nbsp;·&nbsp; 🔩 materiais <b>$${(stashData.matCents/100).toFixed(2)}</b>`;
-    const unp = stashData.unpricedItems ? ` · ${stashData.unpricedItems} sem mercado` : '';
-    $('stashCount').textContent=`🔄 auto do save · ${stashData.types} tipos · ${stashData.pricedItems} itens únicos com preço${unp}`;
+    if(stashData.gearCents!=null){
+      const extra = [
+        stashData.unlistedItems ? `${stashData.unlistedItems} sem anúncio` : '',
+        stashData.unpricedItems ? `${stashData.unpricedItems} sem mercado` : ''
+      ].filter(Boolean).join(' · ');
+      $('totSplit').innerHTML=`⚔️ equipamentos <b>$${(stashData.gearCents/100).toFixed(2)}</b> &nbsp;·&nbsp; 🔩 materiais <b>$${(stashData.matCents/100).toFixed(2)}</b>${extra?' &nbsp;·&nbsp; '+extra:''}`;
+    }
+    const bits = [`🔄 auto do save`, `${stashData.types} tipos`, `${stashData.pricedItems} itens únicos com preço`];
+    if(stashData.ownedGearItems!=null) bits.push(`⚔️ ${stashData.ownedGearItems} equips lidos`);
+    if(stashData.unlistedItems) bits.push(`${stashData.unlistedItems} sem anúncio`);
+    if(stashData.unpricedItems) bits.push(`${stashData.unpricedItems} sem mercado`);
+    $('stashCount').textContent=bits.join(' · ');
     if(window._brlRate) $('totBrl').textContent='≈ R$ '+(stashData.totalCents/100*window._brlRate).toFixed(2).replace('.',',');
     return;
   }
