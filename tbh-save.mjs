@@ -338,13 +338,15 @@ export function readStash(marketItems) {
   // TODAS as entradas do baú agregadas por nome de mercado (searchName), inclusive as que NÃO
   // cruzaram com o cache. É o que a "Varredura Fiel" usa pra consultar o orderbook 1 a 1: muitos
   // materiais não têm anúncio de venda (some do priceoverview) mas TÊM centenas de ordens de compra.
-  const entries = {}; // searchName -> { searchName, name, qty, kind, matched }
-  const addEntry = (searchName, name, kind, matched) => {
+  const entries = {}; // searchName -> { searchName, name, qty, kind, matched, needGradeProbe, baseName, tabs }
+  const addEntry = (searchName, name, kind, matched, opts = {}) => {
     if (!searchName) return;
     const k = searchName.toLowerCase();
-    if (!entries[k]) entries[k] = { searchName, name: name || searchName, qty: 0, kind, matched: !!matched };
+    if (!entries[k]) entries[k] = { searchName, name: name || searchName, qty: 0, kind,
+      matched: !!matched, needGradeProbe: !!opts.needGradeProbe, baseName: opts.baseName || null, tabs: {} };
     entries[k].qty++;
     if (matched) entries[k].matched = true;
+    if (opts.tab != null) entries[k].tabs[opts.tab] = (entries[k].tabs[opts.tab] || 0) + 1;
   };
   let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0, unlisted = 0, pending = 0;
   let ownedGearItems = 0, ownedMaterialItems = 0, ownedOtherItems = 0;
@@ -363,9 +365,16 @@ export function readStash(marketItems) {
 
     // searchName = market_hash_name a usar no orderbook. Gear: gearHash (Nome (Grade) A). Material:
     // nome localizado direto (Diamond, Turquoise...). É o que permite consultar item NÃO-cruzado.
-    const gearHashForEntry = (r && r.GEARTYPE && r.Level) ? gearMarketHash(r, names) : null;
-    const entrySearch = gearHashForEntry || localizedName || null;
-    const entryKind = (r && r.GEARTYPE && r.Level) ? 'gear' : (localizedName ? 'material' : 'other');
+    const isGear = !!(r && r.GEARTYPE && r.Level);
+    const gearHashForEntry = isGear ? gearMarketHash(r, names) : null;
+    // gear grade-baixa (Common/Rare): gearHash falha (não marketable nessa grade), mas o NOME BASE
+    // existe e o mercado vende as versões de grade alta. Usa o nome base + needGradeProbe pra a
+    // varredura testar (Immortal) A, (Arcana) A... e achar onde tem ordem de compra.
+    const gearBaseName = isGear ? nameFromNameKey(r, names) : null;
+    const needGradeProbe = isGear && !gearHashForEntry && !!gearBaseName;
+    const entrySearch = gearHashForEntry || (isGear ? gearBaseName : localizedName) || null;
+    const entryKind = isGear ? 'gear' : (localizedName ? 'material' : 'other');
+    const entryTab = (slot.Index != null) ? Math.floor(slot.Index / 49) : null;
 
     // 1) equipamento: casa por (geartype|grade|level)
     if (r && r.GEARTYPE && r.Level) {
@@ -418,7 +427,8 @@ export function readStash(marketItems) {
       unknown[label] = (unknown[label] || 0) + 1;
     }
     // registra a entrada pra Varredura Fiel (todo item com nome pesquisável, cruzado ou não)
-    addEntry(m ? m.hash : entrySearch, m ? m.name : (localizedName || entrySearch), entryKind, !!m);
+    addEntry(m ? m.hash : entrySearch, m ? m.name : (localizedName || entrySearch), entryKind, !!m,
+      { needGradeProbe: m ? false : needGradeProbe, baseName: gearBaseName, tab: entryTab });
   }
 
   const list = Object.values(agg).sort((a, b) => b.priceCents * b.qty - a.priceCents * a.qty);
@@ -473,4 +483,45 @@ export function applyResolvedPrices(stash, priceByHash) {
     return next;
   }).sort((a, b) => (b.priceCents || 0) * (b.qty || 1) - (a.priceCents || 0) * (a.qty || 1));
   return { ...stash, items, totalCents, gearCents, matCents, pricedItems: priced, pendingItems: pending };
+}
+
+// Relatório das abas do baú, slot a slot, pro Giba conferir com o jogo. 7 abas de 49 slots (7x7).
+// Mostra o nome resolvido de cada slot ocupado (material direto ou nome base do equipamento).
+export function readTabs() {
+  if (!saveExists()) throw new Error('save do TBH não encontrado');
+  const root = JSON.parse(decryptES3(fs.readFileSync(SAVE_FILE), getES3Password()).toString('utf8'));
+  const psd = JSON.parse(root.PlayerSaveData.value);
+  const items = asArr(psd.itemSaveDatas);
+  const byId = {}; for (const it of items) byId[it.UniqueId] = it;
+  const table = loadItemTable();
+  const names = loadItemNames();
+  const slots = asArr(psd.stashSaveDatas)
+    .filter(s => s.ItemUniqueId && String(s.ItemUniqueId) !== '0');
+  const TAB_SIZE = 49; // 7x7
+  const tabs = {};
+  for (const s of slots) {
+    const tab = Math.floor((s.Index ?? 0) / TAB_SIZE);
+    const cell = (s.Index ?? 0) % TAB_SIZE;
+    const it = byId[s.ItemUniqueId];
+    let label = '(?)';
+    if (it) {
+      const r = table[it.ItemKey];
+      if (r && r.GEARTYPE && r.Level) {
+        const base = nameFromNameKey(r, names);
+        const grade = GRADE_MAP[String(r.GRADE).toUpperCase()] || titleToken(r.GRADE);
+        label = base ? `${base} (${grade}) Lv${r.Level}` : `${gearTypeText(r)} ${r.GRADE}`;
+      } else {
+        label = names[it.ItemKey] || `ItemKey ${it.ItemKey}`;
+      }
+    }
+    (tabs[tab] = tabs[tab] || []).push({ cell, index: s.Index, name: label });
+  }
+  // ordena cada aba por célula e devolve array de abas
+  const out = Object.keys(tabs).sort((a, b) => a - b).map(t => ({
+    tab: Number(t),
+    label: `Aba ${Number(t) + 1}`,
+    occupied: tabs[t].length,
+    slots: tabs[t].sort((a, b) => a.cell - b.cell),
+  }));
+  return { saveMtime: saveMtime(), tabSize: TAB_SIZE, tabCount: out.length, tabs: out };
 }

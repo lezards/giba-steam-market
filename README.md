@@ -5,6 +5,11 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
+> ### 🧰 Atualização 25/06/2026 — Varredura pega equipamentos de grade alta + conferência das 7 abas
+> Alguns equipamentos (anel, luvas, cajado...) têm ordem de compra valendo R$20+ mas não apareciam, porque no save eles ficam com o nome "básico" que não vende. Agora a **Varredura Fiel testa as grades** (Immortal, Arcana...) e acha onde tem comprador — esses itens vêm marcados com **"ref"** (preço de referência, a grada pode diferir da sua exata). No meu baú, isso destravou mais equipamentos: Dimensional Gloves R$23,72, Ethereal Ring R$19,25, etc.
+>
+> Também chegou o botão **"📑 Conferir abas"**: mostra **o que o app leu em cada uma das 7 abas** do seu baú, slot a slot. Assim você compara com o jogo e, se algum item que você vê não estiver na lista, dá pra avisar exatamente qual.
+>
 > ### 🔎 Atualização 25/06/2026 — Varredura Fiel: agora encontra TODO comprador do seu baú
 > Faltava dinheiro na conta. Muitos itens do baú (tipo **Diamond, Amethyst, Turquoise, Phoenix Ash**) não aparecem à venda na Steam, então o app os marcava como "sem mercado" — **mas tem MUITA gente querendo comprar**: o Diamond tem mais de 1400 compradores na fila, o Turquoise mais de 2000, e o Amethyst chega a valer R$25 cada.
 >
@@ -202,6 +207,7 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 
 ## 📜 Histórico de atualizações
 
+- **25/06/2026** — Varredura testa grades dos equipamentos (acha ordens de compra de itens grade-baixa, marcados "ref") + botão "📑 Conferir abas" mostra as 7 abas slot a slot pra comparar com o jogo.
 - **25/06/2026** — Varredura Fiel: botão "🔎 Varredura Fiel (1 a 1)" consulta cada item do baú no orderbook da Steam (inclusive os sem anúncio de venda) e mostra por quanto dá pra vender na hora + nº de compradores. Pega itens que antes eram marcados "sem mercado" mas têm centenas de ordens de compra.
 - **25/06/2026** — Baú estável: acabou o problema de itens que somem/aparecem e do valor que oscilava sozinho (cache de mercado parcial). Preço carregado item a item ("⏳ carregando preço"), total determinístico, botão "↻ Atualizar Baú" e atualização automática ao dropar/vender no jogo.
 - **18/06/2026** — Modo leigo: fallback público de tabela/nomes, diagnóstico seguro na UI e logs do baú no CMD.

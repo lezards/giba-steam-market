@@ -78,6 +78,14 @@
   #ordBtn:disabled,#stashRefreshBtn:disabled,#scanBtn:disabled{opacity:.6;cursor:wait}
   #scanBtn{border-color:#2a6f4a;color:#5fd39a}
   #scanBtn:hover{border-color:#5fd39a}
+  #tabsBtn{background:#182036;border:1px solid var(--line);border-radius:8px;color:var(--dim);cursor:pointer;padding:7px 10px;font-size:12.5px;font-weight:600;white-space:nowrap}
+  #tabsBtn:hover{color:var(--gold);border-color:var(--gold)}
+  .tabsReport{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+  .tabBlock{background:#0d1220;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+  .tabBlock summary{cursor:pointer;color:var(--gold);font-size:13px;padding:2px 0}
+  .tabGrid{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .tabCell{background:#161d30;border:1px solid var(--line);border-radius:6px;padding:3px 7px;font-size:11.5px;color:#c7d0e0}
+  .refTag{font-size:10px;color:#e8b84a;border:1px solid #6b561f;border-radius:5px;padding:0 5px;margin-left:6px}
   .scanbar{height:8px;background:#0e1422;border-radius:6px;overflow:hidden;margin:7px 0 3px}
   .scanfill{height:100%;background:linear-gradient(90deg,#2a6f4a,#5fd39a);transition:width .4s ease}
   #ordSummary{border-top:1px solid var(--line);padding:11px 16px;background:#0f1626;font-size:13px;color:var(--dim)}
@@ -151,6 +159,7 @@
       <button id="stashRefreshBtn" title="Reler o baú do save do jogo (depois de dropar ou vender algo)">↻ Atualizar Baú</button>
       <button id="scanBtn" title="Consulta CADA item do baú no Mercado Steam, um por um. Demora ~1 min, mas pega TUDO — inclusive itens sem anúncio de venda que têm comprador esperando.">🔎 Varredura Fiel (1 a 1)</button>
       <button id="ordBtn" title="Buscar as ordens de compra de cada item — quanto dá pra vender NA HORA">💸 Ver ordens de compra</button>
+      <button id="tabsBtn" title="Ver o que o app leu em cada uma das 7 abas do baú, slot a slot, pra você comparar com o jogo">📑 Conferir abas</button>
       <button id="diagBtn" title="Copiar um diagnóstico seguro para pedir ajuda">📋 Diagnóstico</button>
       <span id="stashToggle" class="meta">▼</span>
     </div>
@@ -377,6 +386,7 @@ function renderStash(){
   // botão de ordens de compra só faz sentido no modo AUTO (baú do TBH lido)
   $('ordBtn').style.display = (stashData && stashData.items && stashData.items.length) ? '' : 'none';
   $('scanBtn').style.display = (stashData && stashData.allEntries && stashData.allEntries.length) ? '' : 'none';
+  $('tabsBtn').style.display = (appid===3678970 && stashData && stashData.found) ? '' : 'none';
   $('diagBtn').style.display = (appid===3678970 || stashData || stashError) ? '' : 'none';
   // modo AUTO (save lido): usa stashData
   if(stashData){
@@ -423,7 +433,9 @@ function renderStash(){
       const o = ordData && ordData[r.hash];
       const hasBuy = o && o.maxBuyCents>0;
       // item vindo da Varredura Fiel (não cruzava com o cache): valor = ordem de compra
-      const scanVal = r.fromScan && hasBuy ? `${ordSymbol} ${centsBR(o.maxBuyCents*r.qty)} na venda imediata` : '';
+      const isRef = o && o.refPrice;
+      const refMark = isRef ? ' <span class="refTag" title="O item do seu baú é de grade básica; este preço é de uma versão negociável do mesmo item — pode diferir do seu exato.">ref</span>' : '';
+      const scanVal = r.fromScan && hasBuy ? `${ordSymbol} ${centsBR(o.maxBuyCents*r.qty)} na venda imediata${refMark}` : '';
       const priceNote = scanVal ? scanVal
         : noListing ? 'sem anúncio de venda · tente ordens de compra'
         : pending ? 'preço carregando…' : `${r.priceText} un.`;
@@ -502,6 +514,26 @@ $('stashRefreshBtn').addEventListener('click',async e=>{
 });
 $('scanBtn').addEventListener('click',e=>{ e.stopPropagation(); runScan(); });
 $('ordBtn').addEventListener('click',e=>{ e.stopPropagation(); loadOrders(); });
+$('tabsBtn').addEventListener('click',async e=>{
+  e.stopPropagation();
+  const panel=$('diagPanel'); panel.hidden=false;
+  panel.innerHTML='<div class="diagHint">Lendo as 7 abas do baú…</div>';
+  try{
+    const j=await(await fetch(`/api/stash-tabs?appid=${appid}`)).json();
+    if(!j.found){ panel.innerHTML='<div class="diagHint">Save do TBH não encontrado.</div>'; return; }
+    if(j.error){ panel.innerHTML='<div class="diagHint">Erro ao ler abas: '+j.error+'</div>'; return; }
+    const esc=s=>String(s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    let html='<div class="diagHint">O que o app leu em cada aba do baú (7 abas × 49 slots). Compare com o jogo: se algum item que você vê não aparecer aqui, me avise o nome.</div>';
+    html+='<div class="tabsReport">';
+    for(const aba of j.tabs){
+      html+=`<details class="tabBlock"><summary><b>${esc(aba.label)}</b> · ${aba.occupied} itens</summary><div class="tabGrid">`;
+      html+=aba.slots.map(s=>`<span class="tabCell" title="slot ${s.cell+1}">${esc(s.name)}</span>`).join('');
+      html+='</div></details>';
+    }
+    html+='</div>';
+    panel.innerHTML=html;
+  }catch(err){ panel.innerHTML='<div class="diagHint">Não consegui ler as abas agora. Tente de novo.</div>'; }
+});
 $('diagBtn').addEventListener('click',async e=>{
   e.stopPropagation();
   const txt=diagnosticText();

@@ -270,6 +270,9 @@ async function apiStashOrders(q) {
 // somem do priceoverview, mas têm centenas de ordens de COMPRA). Roda em background com throttle
 // de 700ms; o front faz polling do progresso. É o "demora mais, mas é fiel" pedido pelo Giba.
 const SCAN_DELAY_MS = 700; // testado: aguenta sem 429
+// Grades negociáveis no mercado, da mais valiosa pra menos. Pro probe de equips grade-baixa: o item
+// do save é Common/Rare (não vende), mas o mesmo NOME existe no mercado em grade alta com ordens.
+const PROBE_GRADES = ['Immortal', 'Arcana', 'Celestial', 'Divine', 'Cosmic', 'Beyond', 'Legendary'];
 const scans = new Map();   // appid → { status, total, done, items, totalImediatoCents, currency, symbol, startedAt, error }
 
 async function runStashScan(appid) {
@@ -282,12 +285,22 @@ async function runStashScan(appid) {
   try {
     for (const e of entries) {
       try {
-        const ob = await fetchOrderbook(appid, e.searchName); // reusa cache 3min + throttle interno
+        let ob = await fetchOrderbook(appid, e.searchName); // reusa cache 3min + throttle interno
+        let usedHash = e.searchName, refPrice = false;
+        // gear grade-baixa: o nome cru não vende. Testa as grades altas e usa a 1ª com ordem de compra.
+        if ((!ob.buyCount || !ob.maxBuyCents) && e.needGradeProbe && e.baseName) {
+          for (const g of PROBE_GRADES) {
+            await sleep(SCAN_DELAY_MS);
+            const h = `${e.baseName} (${g}) A`;
+            const probe = await fetchOrderbook(appid, h);
+            if (probe.buyCount > 0 && probe.maxBuyCents) { ob = probe; usedHash = h; refPrice = true; break; }
+          }
+        }
         state.currency = state.currency || ob.currency;
         state.symbol = state.symbol || ob.symbol;
         const subtotal = ob.maxBuyCents ? ob.maxBuyCents * e.qty : 0;
         state.totalImediatoCents += subtotal;
-        state.items.push({ name: e.name, hash: e.searchName, qty: e.qty, kind: e.kind, matched: e.matched,
+        state.items.push({ name: e.name, hash: usedHash, qty: e.qty, kind: e.kind, matched: e.matched, refPrice,
           maxBuyCents: ob.maxBuyCents, minSellCents: ob.minSellCents, buyCount: ob.buyCount,
           liquidez: ob.liquidez, subtotalCents: subtotal });
       } catch (err) {
@@ -309,6 +322,12 @@ async function runStashScan(appid) {
     state.status = 'error'; state.error = err.message;
     log(`VARREDURA FIEL ERRO: ${err.message}`);
   }
+}
+
+function apiStashTabs(q) {
+  if (!tbhSave.saveExists()) return { found: false };
+  try { return { found: true, ...tbhSave.readTabs() }; }
+  catch (e) { return { found: true, error: e.message }; }
 }
 
 function apiStashScan(q) {
@@ -350,6 +369,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === '/api/stash-orders') return send(200, await apiStashOrders(u.searchParams));
     if (u.pathname === '/api/stash-prices') return send(200, await apiStashPrices(u.searchParams));
     if (u.pathname === '/api/stash-scan') return send(200, apiStashScan(u.searchParams));
+    if (u.pathname === '/api/stash-tabs') return send(200, apiStashTabs(u.searchParams));
     if (u.pathname === '/api/save-mtime') {
       // poll leve pro front detectar drop/venda no jogo e re-ler o baú sozinho
       return send(200, { mtime: tbhSave.saveExists() ? tbhSave.saveMtime() : 0 });
