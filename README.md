@@ -5,6 +5,15 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
+> ### 🛠️ Atualização 25/06/2026 — fim dos itens que somem e do valor que pula sozinho
+> Vários jogadores notaram que o baú "dançava": itens que você TEM apareciam e sumiam a cada atualização, e o valor total mudava sem você mexer em nada. O motivo era técnico — a Steam entrega a lista de preços em pedacinhos (10 por vez pra quem não está logado) e, quando um pedaço falhava, itens que de fato vendem caíam como "sem mercado" e desapareciam da conta.
+>
+> Agora o app **lembra de todos os itens que já viu vendendo** e, quando o preço de um item ainda não chegou, ele mostra **"⏳ carregando preço"** em vez de fazer o item sumir. O preço é buscado item por item logo em seguida e o total se ajusta sozinho até o valor certo. Resultado: **mesmo baú = mesmo valor, sempre** — sem item fantasma e sem total pulando.
+>
+> Também chegou o botão **"↻ Atualizar Baú"** e a atualização automática: largou ou vendeu algo dentro do jogo? O baú se atualiza sozinho em alguns segundos, sem precisar reabrir o app.
+>
+> _(Itens que realmente não vendem na Steam — tipo Phoenix Ash, Diamond, certos materiais — continuam marcados como "sem mercado". Isso está correto: eles não têm como ser vendidos.)_
+>
 > ### 🛠️ Atualização 18/06/2026 — modo leigo à prova de baú vazio
 > O app agora vem com uma tabela pública de fallback do TBH. Isso evita o caso em que o CMD mostra que o save tem itens, mas a tela não mostra o baú porque faltavam arquivos locais como `tbh-itemnames.json`.
 >
@@ -188,6 +197,7 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 
 ## 📜 Histórico de atualizações
 
+- **25/06/2026** — Baú estável: acabou o problema de itens que somem/aparecem e do valor que oscilava sozinho (cache de mercado parcial). Preço carregado item a item ("⏳ carregando preço"), total determinístico, botão "↻ Atualizar Baú" e atualização automática ao dropar/vender no jogo.
 - **18/06/2026** — Modo leigo: fallback público de tabela/nomes, diagnóstico seguro na UI e logs do baú no CMD.
 - **18/06/2026** — Contagem do baú por item único (`UniqueId`), ignorando referências duplicadas do save.
 - **18/06/2026** — Equipamentos negociáveis sem anúncio ativo agora aparecem no baú como "sem anúncio" e podem ser consultados nas ordens de compra.
