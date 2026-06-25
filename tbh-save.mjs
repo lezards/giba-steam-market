@@ -335,6 +335,17 @@ export function readStash(marketItems) {
   });
 
   const agg = {}; // marketHash -> { name, priceCents, qty, kind }
+  // TODAS as entradas do baú agregadas por nome de mercado (searchName), inclusive as que NÃO
+  // cruzaram com o cache. É o que a "Varredura Fiel" usa pra consultar o orderbook 1 a 1: muitos
+  // materiais não têm anúncio de venda (some do priceoverview) mas TÊM centenas de ordens de compra.
+  const entries = {}; // searchName -> { searchName, name, qty, kind, matched }
+  const addEntry = (searchName, name, kind, matched) => {
+    if (!searchName) return;
+    const k = searchName.toLowerCase();
+    if (!entries[k]) entries[k] = { searchName, name: name || searchName, qty: 0, kind, matched: !!matched };
+    entries[k].qty++;
+    if (matched) entries[k].matched = true;
+  };
   let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0, unlisted = 0, pending = 0;
   let ownedGearItems = 0, ownedMaterialItems = 0, ownedOtherItems = 0;
   const unknown = {};
@@ -349,6 +360,12 @@ export function readStash(marketItems) {
     if (r && r.GEARTYPE && r.Level) ownedGearItems++;
     else if (localizedName) ownedMaterialItems++;
     else ownedOtherItems++;
+
+    // searchName = market_hash_name a usar no orderbook. Gear: gearHash (Nome (Grade) A). Material:
+    // nome localizado direto (Diamond, Turquoise...). É o que permite consultar item NÃO-cruzado.
+    const gearHashForEntry = (r && r.GEARTYPE && r.Level) ? gearMarketHash(r, names) : null;
+    const entrySearch = gearHashForEntry || localizedName || null;
+    const entryKind = (r && r.GEARTYPE && r.Level) ? 'gear' : (localizedName ? 'material' : 'other');
 
     // 1) equipamento: casa por (geartype|grade|level)
     if (r && r.GEARTYPE && r.Level) {
@@ -400,9 +417,12 @@ export function readStash(marketItems) {
       const label = nm || (r ? `${r.GEARTYPE || r.ITEMTYPE} ${r.GRADE} Lv${r.Level}`.trim() : `ItemKey ${it.ItemKey}`);
       unknown[label] = (unknown[label] || 0) + 1;
     }
+    // registra a entrada pra Varredura Fiel (todo item com nome pesquisável, cruzado ou não)
+    addEntry(m ? m.hash : entrySearch, m ? m.name : (localizedName || entrySearch), entryKind, !!m);
   }
 
   const list = Object.values(agg).sort((a, b) => b.priceCents * b.qty - a.priceCents * a.qty);
+  const allEntries = Object.values(entries).sort((a, b) => b.qty - a.qty);
   return {
     fetchedAt: Date.now(),
     saveMtime: saveMtime(),
@@ -427,6 +447,7 @@ export function readStash(marketItems) {
       itemNamesCount: _itemNamesCount,
     },
     items: list,
+    allEntries, // todas as entradas do baú com searchName (pra Varredura Fiel via orderbook)
     unlistedSummary: Object.entries(unlistedSummary).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
     unknownSummary: Object.entries(unknown).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
   };

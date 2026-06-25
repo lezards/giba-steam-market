@@ -5,6 +5,11 @@
 ![demo](docs/demo.png)
 
 > [!IMPORTANT]
+> ### 🔎 Atualização 25/06/2026 — Varredura Fiel: agora encontra TODO comprador do seu baú
+> Faltava dinheiro na conta. Muitos itens do baú (tipo **Diamond, Amethyst, Turquoise, Phoenix Ash**) não aparecem à venda na Steam, então o app os marcava como "sem mercado" — **mas tem MUITA gente querendo comprar**: o Diamond tem mais de 1400 compradores na fila, o Turquoise mais de 2000, e o Amethyst chega a valer R$25 cada.
+>
+> Chegou o botão **"🔎 Varredura Fiel (1 a 1)"**: ele consulta **cada item do seu baú, um por um**, direto no Mercado Steam, e mostra **por quanto dá pra vender NA HORA** (a ordem de compra) e **quantas pessoas querem comprar**. Demora cerca de 1 minuto (tem barra de progresso), mas é **fiel** — pega tudo, inclusive os itens que antes sumiam da lista. No teste do meu próprio baú apareceram mais de R$1.000 em ordens de compra que antes nem eram mostradas.
+>
 > ### 🛠️ Atualização 25/06/2026 — fim dos itens que somem e do valor que pula sozinho
 > Vários jogadores notaram que o baú "dançava": itens que você TEM apareciam e sumiam a cada atualização, e o valor total mudava sem você mexer em nada. O motivo era técnico — a Steam entrega a lista de preços em pedacinhos (10 por vez pra quem não está logado) e, quando um pedaço falhava, itens que de fato vendem caíam como "sem mercado" e desapareciam da conta.
 >
@@ -197,6 +202,7 @@ Se você quer que uma IA te ajude a instalar, modificar ou consertar este app, *
 
 ## 📜 Histórico de atualizações
 
+- **25/06/2026** — Varredura Fiel: botão "🔎 Varredura Fiel (1 a 1)" consulta cada item do baú no orderbook da Steam (inclusive os sem anúncio de venda) e mostra por quanto dá pra vender na hora + nº de compradores. Pega itens que antes eram marcados "sem mercado" mas têm centenas de ordens de compra.
 - **25/06/2026** — Baú estável: acabou o problema de itens que somem/aparecem e do valor que oscilava sozinho (cache de mercado parcial). Preço carregado item a item ("⏳ carregando preço"), total determinístico, botão "↻ Atualizar Baú" e atualização automática ao dropar/vender no jogo.
 - **18/06/2026** — Modo leigo: fallback público de tabela/nomes, diagnóstico seguro na UI e logs do baú no CMD.
 - **18/06/2026** — Contagem do baú por item único (`UniqueId`), ignorando referências duplicadas do save.

@@ -265,6 +265,69 @@ async function apiStashOrders(q) {
   return { found: true, currency, symbol, totalImediatoCents, count: out.length, items: out };
 }
 
+// ── Varredura Fiel: consulta o orderbook de CADA item do baú, 1 a 1 ──────────────────────
+// Inclui itens que NÃO casam com o cache de mercado (muitos materiais não têm anúncio de venda,
+// somem do priceoverview, mas têm centenas de ordens de COMPRA). Roda em background com throttle
+// de 700ms; o front faz polling do progresso. É o "demora mais, mas é fiel" pedido pelo Giba.
+const SCAN_DELAY_MS = 700; // testado: aguenta sem 429
+const scans = new Map();   // appid → { status, total, done, items, totalImediatoCents, currency, symbol, startedAt, error }
+
+async function runStashScan(appid) {
+  const market = readListCache(appid);
+  const stash = tbhSave.readStash(market ? market.items : []);
+  const entries = (stash.allEntries || []).filter(e => e.searchName && e.qty > 0);
+  const state = { status: 'running', total: entries.length, done: 0, items: [],
+    totalImediatoCents: 0, currency: null, symbol: '', startedAt: Date.now(), error: null };
+  scans.set(appid, state);
+  try {
+    for (const e of entries) {
+      try {
+        const ob = await fetchOrderbook(appid, e.searchName); // reusa cache 3min + throttle interno
+        state.currency = state.currency || ob.currency;
+        state.symbol = state.symbol || ob.symbol;
+        const subtotal = ob.maxBuyCents ? ob.maxBuyCents * e.qty : 0;
+        state.totalImediatoCents += subtotal;
+        state.items.push({ name: e.name, hash: e.searchName, qty: e.qty, kind: e.kind, matched: e.matched,
+          maxBuyCents: ob.maxBuyCents, minSellCents: ob.minSellCents, buyCount: ob.buyCount,
+          liquidez: ob.liquidez, subtotalCents: subtotal });
+      } catch (err) {
+        if (err.code === 429) { // backoff e continua (não perde o que já varreu)
+          await sleep(8000);
+          state.items.push({ name: e.name, hash: e.searchName, qty: e.qty, kind: e.kind, error: 'rate-limited' });
+        } else {
+          state.items.push({ name: e.name, hash: e.searchName, qty: e.qty, kind: e.kind, error: err.message });
+        }
+      }
+      state.done++;
+      await sleep(SCAN_DELAY_MS);
+    }
+    // ordena por valor de venda na hora (maxBuy*qty desc); sem comprador vai pro fim
+    state.items.sort((a, b) => (b.subtotalCents || 0) - (a.subtotalCents || 0) || (b.buyCount || 0) - (a.buyCount || 0));
+    state.status = 'done';
+    log(`VARREDURA FIEL OK: ${state.total} nomes, ${state.symbol}${(state.totalImediatoCents/100).toFixed(2)} em ordens de compra`);
+  } catch (err) {
+    state.status = 'error'; state.error = err.message;
+    log(`VARREDURA FIEL ERRO: ${err.message}`);
+  }
+}
+
+function apiStashScan(q) {
+  const appid = Number(q.get('appid')) || DEFAULT_APPID;
+  const action = q.get('action') || 'status';
+  if (!tbhSave.saveExists()) return { found: false };
+  const cur = scans.get(appid);
+  if (action === 'start') {
+    if (!cur || cur.status !== 'running') runStashScan(appid); // dispara em background (sem await)
+    const s = scans.get(appid);
+    return { found: true, status: s.status, total: s.total, done: s.done };
+  }
+  // status/poll
+  if (!cur) return { found: true, status: 'idle', total: 0, done: 0, items: [] };
+  return { found: true, status: cur.status, total: cur.total, done: cur.done,
+    currency: cur.currency, symbol: cur.symbol, totalImediatoCents: cur.totalImediatoCents,
+    items: cur.status === 'running' ? [] : cur.items, error: cur.error };
+}
+
 const INDEX = fs.readFileSync(path.join(ROOT, 'public', 'index.html'));
 
 const server = http.createServer(async (req, res) => {
@@ -286,6 +349,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (u.pathname === '/api/stash-orders') return send(200, await apiStashOrders(u.searchParams));
     if (u.pathname === '/api/stash-prices') return send(200, await apiStashPrices(u.searchParams));
+    if (u.pathname === '/api/stash-scan') return send(200, apiStashScan(u.searchParams));
     if (u.pathname === '/api/save-mtime') {
       // poll leve pro front detectar drop/venda no jogo e re-ler o baú sozinho
       return send(200, { mtime: tbhSave.saveExists() ? tbhSave.saveMtime() : 0 });

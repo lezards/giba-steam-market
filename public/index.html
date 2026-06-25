@@ -73,9 +73,13 @@
   .add:hover{background:#222b45;border-color:var(--gold)}
   .empty{padding:16px;color:var(--dim);text-align:center;font-size:14px}
   /* Ordens de compra (venda imediata) */
-  #ordBtn,#stashRefreshBtn{background:#1a2238;border:1px solid var(--line);border-radius:8px;color:var(--gold);cursor:pointer;padding:7px 12px;font-size:13px;font-weight:600;white-space:nowrap}
-  #ordBtn:hover,#stashRefreshBtn:hover{background:#232d4a;border-color:var(--gold)}
-  #ordBtn:disabled,#stashRefreshBtn:disabled{opacity:.6;cursor:wait}
+  #ordBtn,#stashRefreshBtn,#scanBtn{background:#1a2238;border:1px solid var(--line);border-radius:8px;color:var(--gold);cursor:pointer;padding:7px 12px;font-size:13px;font-weight:600;white-space:nowrap}
+  #ordBtn:hover,#stashRefreshBtn:hover,#scanBtn:hover{background:#232d4a;border-color:var(--gold)}
+  #ordBtn:disabled,#stashRefreshBtn:disabled,#scanBtn:disabled{opacity:.6;cursor:wait}
+  #scanBtn{border-color:#2a6f4a;color:#5fd39a}
+  #scanBtn:hover{border-color:#5fd39a}
+  .scanbar{height:8px;background:#0e1422;border-radius:6px;overflow:hidden;margin:7px 0 3px}
+  .scanfill{height:100%;background:linear-gradient(90deg,#2a6f4a,#5fd39a);transition:width .4s ease}
   #ordSummary{border-top:1px solid var(--line);padding:11px 16px;background:#0f1626;font-size:13px;color:var(--dim)}
   #ordSummary .obtot{display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}
   #ordSummary .obtot>b{color:var(--green);font-size:18px}
@@ -145,6 +149,7 @@
         <span class="split" id="totSplit"></span>
       </div>
       <button id="stashRefreshBtn" title="Reler o baú do save do jogo (depois de dropar ou vender algo)">↻ Atualizar Baú</button>
+      <button id="scanBtn" title="Consulta CADA item do baú no Mercado Steam, um por um. Demora ~1 min, mas pega TUDO — inclusive itens sem anúncio de venda que têm comprador esperando.">🔎 Varredura Fiel (1 a 1)</button>
       <button id="ordBtn" title="Buscar as ordens de compra de cada item — quanto dá pra vender NA HORA">💸 Ver ordens de compra</button>
       <button id="diagBtn" title="Copiar um diagnóstico seguro para pedir ajuda">📋 Diagnóstico</button>
       <span id="stashToggle" class="meta">▼</span>
@@ -243,11 +248,47 @@ async function loadOrders(){
   renderStash();
 }
 
+// ===== Varredura Fiel: consulta o orderbook de CADA item do baú (inclui os sem anúncio) =====
+let scanning=false, scanResult=null;
+async function runScan(){
+  if(scanning || !stashData) return;
+  scanning=true;
+  const btn=$('scanBtn'); const old=btn.textContent; btn.disabled=true;
+  const sum=$('ordSummary'); sum.hidden=false;
+  const showProg=(d,t)=>{ const pct=t?Math.round(d/t*100):0;
+    sum.innerHTML=`<div class="obtot">🔎 <b>Varredura Fiel em andamento…</b> consultando o Mercado Steam item a item.<div class="scanbar"><div class="scanfill" style="width:${pct}%"></div></div><span class="leg">${d} de ${t} itens · ${pct}% · pega até os que não têm anúncio de venda</span></div>`; };
+  try{
+    await fetch(`/api/stash-scan?action=start&appid=${appid}`);
+    showProg(0,stashData.allEntries?stashData.allEntries.length:0);
+    btn.textContent='🔎 varrendo…';
+    let j;
+    do{
+      await new Promise(r=>setTimeout(r,2000));
+      j=await(await fetch(`/api/stash-scan?action=status&appid=${appid}`)).json();
+      if(j.status==='running') showProg(j.done,j.total);
+    }while(j.status==='running');
+    if(j.status==='done' && j.items){
+      // popula o MESMO ordData usado pelo "Ver ordens de compra", mas agora com cobertura TOTAL
+      ordData={}; for(const r of j.items) ordData[r.hash]=r;
+      ordSymbol=j.symbol||'R$';
+      scanResult=j; // guarda pro render do baú usar valores de venda na hora
+      const tot=j.totalImediatoCents||0;
+      const comOrdem=j.items.filter(x=>x.maxBuyCents>0).length;
+      const semOrdem=j.items.filter(x=>!x.maxBuyCents&&!x.error).length;
+      const parcial=j.items.some(x=>x.error==='rate-limited');
+      renderOrdSummary(tot, comOrdem, semOrdem, parcial);
+    }else if(j.status==='error'){
+      sum.innerHTML='<span style="color:#e8784a">A varredura falhou: '+(j.error||'erro')+'. Tente de novo.</span>';
+    }
+  }catch(e){ sum.innerHTML='<span style="color:#e8784a">Não consegui varrer agora. Tente de novo.</span>'; }
+  finally{ scanning=false; btn.disabled=false; btn.textContent=old; renderStash(); }
+}
+
 let lastSaveMtime=0;       // pro poll detectar drop/venda no jogo
 let pricesResolving=false; // evita disparar o /api/stash-prices duas vezes
 
 async function loadAutoStash(force){
-  stashData=null; stashError=''; ordData=null; $('ordSummary').hidden=true;
+  stashData=null; stashError=''; ordData=null; scanResult=null; $('ordSummary').hidden=true;
   $('diagPanel').hidden=true;
   try{
     const r=await fetch(`/api/stash?appid=${appid}${force?'&refresh=1':''}`);
@@ -335,6 +376,7 @@ function renderStash(){
   const sec=$('stash'), body=$('stashBody'); sec.hidden=false;
   // botão de ordens de compra só faz sentido no modo AUTO (baú do TBH lido)
   $('ordBtn').style.display = (stashData && stashData.items && stashData.items.length) ? '' : 'none';
+  $('scanBtn').style.display = (stashData && stashData.allEntries && stashData.allEntries.length) ? '' : 'none';
   $('diagBtn').style.display = (appid===3678970 || stashData || stashError) ? '' : 'none';
   // modo AUTO (save lido): usa stashData
   if(stashData){
@@ -355,6 +397,16 @@ function renderStash(){
     // 'preco'   = ordem de compra mais cara primeiro (maior retorno por unidade).
     // Em ambos, itens sem ordem de compra vão pro fim.
     let it=stashData.items;
+    // Após a Varredura Fiel, mostra TAMBÉM os itens que não cruzavam com o cache (Diamond,
+    // Amethyst, Turquoise...) — eles têm ordem de compra e antes sumiam da tela.
+    if(scanResult && scanResult.items){
+      const known=new Set(it.map(x=>x.hash.toLowerCase()));
+      const extras=scanResult.items.filter(s=>!known.has((s.hash||'').toLowerCase()) && (s.maxBuyCents>0||s.qty>0))
+        .map(s=>({ name:s.name, hash:s.hash, qty:s.qty, kind:s.kind, type:'', icon:'', color:'',
+          priceCents:0, priceText:'', url:`https://steamcommunity.com/market/listings/${appid}/${encodeURIComponent(s.hash)}`,
+          hasMarketListing:false, fromScan:true }));
+      it=[...it, ...extras];
+    }
     if(ordData){
       it=[...it].sort((a,b)=>{
         const oa=ordData[a.hash]||{}, ob=ordData[b.hash]||{};
@@ -368,17 +420,20 @@ function renderStash(){
       const ki=r.kind==='material'?'🔩':'⚔️';
       const noListing = r.hasMarketListing === false;
       const pending = r.pricePending === true;
-      const priceNote = noListing ? 'sem anúncio de venda · tente ordens de compra'
-        : pending ? 'preço carregando…' : `${r.priceText} un.`;
       const o = ordData && ordData[r.hash];
       const hasBuy = o && o.maxBuyCents>0;
+      // item vindo da Varredura Fiel (não cruzava com o cache): valor = ordem de compra
+      const scanVal = r.fromScan && hasBuy ? `${ordSymbol} ${centsBR(o.maxBuyCents*r.qty)} na venda imediata` : '';
+      const priceNote = scanVal ? scanVal
+        : noListing ? 'sem anúncio de venda · tente ordens de compra'
+        : pending ? 'preço carregando…' : `${r.priceText} un.`;
       const obCell = ordData ? `<div class="ob">${ obCellHtml(o) }</div>` : '';
       return `<div class="srow${hasBuy?' has-buy':''}">
         <span class="kind" title="${r.kind==='material'?'material':'equipamento'}">${ki}</span>
         ${r.icon?`<img loading="lazy" src="${r.icon}">`:'<div style="width:34px"></div>'}
         <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${r.type} · ${priceNote}</small></div>
         <div class="qty" style="cursor:default"><span>×${r.qty}</span></div>
-        <div class="sval${(noListing||pending)?' muted':''}">${noListing?'sem anúncio':pending?'⏳':'$'+(tot/100).toFixed(2)}</div>
+        <div class="sval${(noListing||pending)&&!hasBuy?' muted':''}">${r.fromScan?(hasBuy?ordSymbol+' '+centsBR(o.maxBuyCents*r.qty):'sem comprador'):noListing?'sem anúncio':pending?'⏳':'$'+(tot/100).toFixed(2)}</div>
         ${obCell}
         <a class="srm" href="${r.url}" target="_blank" title="Abrir na Steam" style="text-decoration:none">↗</a></div>`;
     }).join('') : `<div class="diagbox"><b class="${stashData.totalItems?'warn':'ok'}">Baú automático lido.</b><br>${stashData.totalItems
@@ -445,6 +500,7 @@ $('stashRefreshBtn').addEventListener('click',async e=>{
   await loadAutoStash(true);
   b.disabled=false; b.textContent=old;
 });
+$('scanBtn').addEventListener('click',e=>{ e.stopPropagation(); runScan(); });
 $('ordBtn').addEventListener('click',e=>{ e.stopPropagation(); loadOrders(); });
 $('diagBtn').addEventListener('click',async e=>{
   e.stopPropagation();
