@@ -86,6 +86,10 @@
   .tabGrid{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
   .tabCell{background:#161d30;border:1px solid var(--line);border-radius:6px;padding:3px 7px;font-size:11.5px;color:#c7d0e0}
   .refTag{font-size:10px;color:#e8b84a;border:1px solid #6b561f;border-radius:5px;padding:0 5px;margin-left:6px}
+  #saveChanged{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#1a2238;border-top:1px solid var(--line);padding:8px 16px;font-size:12.5px;color:#cdd6e6}
+  #saveChanged button{background:#222b45;border:1px solid var(--line);border-radius:7px;color:var(--gold);cursor:pointer;padding:4px 10px;font-size:12px;font-weight:600}
+  #saveChanged button[data-a="dismiss"]{color:var(--dim)}
+  #saveChanged button:hover{border-color:var(--gold)}
   .scanbar{height:8px;background:#0e1422;border-radius:6px;overflow:hidden;margin:7px 0 3px}
   .scanfill{height:100%;background:linear-gradient(90deg,#2a6f4a,#5fd39a);transition:width .4s ease}
   #ordSummary{border-top:1px solid var(--line);padding:11px 16px;background:#0f1626;font-size:13px;color:var(--dim)}
@@ -258,7 +262,7 @@ async function loadOrders(){
 }
 
 // ===== Varredura Fiel: consulta o orderbook de CADA item do baú (inclui os sem anúncio) =====
-let scanning=false, scanResult=null;
+let scanning=false, scanResult=null, saveChangedPending=false;
 async function runScan(){
   if(scanning || !stashData) return;
   scanning=true;
@@ -299,6 +303,7 @@ let pricesResolving=false; // evita disparar o /api/stash-prices duas vezes
 async function loadAutoStash(force){
   stashData=null; stashError=''; ordData=null; scanResult=null; $('ordSummary').hidden=true;
   $('diagPanel').hidden=true;
+  saveChangedPending=false; { const b=$('saveChanged'); if(b) b.remove(); } // limpa o aviso ao recarregar
   try{
     const r=await fetch(`/api/stash?appid=${appid}${force?'&refresh=1':''}`);
     const j=await r.json();
@@ -325,16 +330,39 @@ async function resolvePendingPrices(){
   finally{ pricesResolving=false; if($('stashCount').textContent==='resolvendo preços do baú…') $('stashCount').textContent=old; }
 }
 
-// Poll leve: se o save mudou (Giba dropou/vendeu no jogo), re-lê o baú sozinho.
+// Poll leve: detecta se o save mudou (Giba dropou/vendeu no jogo).
+// IMPORTANTE: se já tem uma Varredura Fiel ou ordens de compra na tela, NÃO recarrega sozinho
+// (isso apagava o trabalho do usuário). Em vez disso mostra um aviso discreto pra ele atualizar
+// quando quiser. Só auto-recarrega quando a tela está "limpa" (sem varredura/ordens).
 async function pollSaveMtime(){
   if(appid!==3678970) return;
   try{
     const j=await(await fetch('/api/save-mtime')).json();
-    if(j.mtime && lastSaveMtime && j.mtime!==lastSaveMtime){ lastSaveMtime=j.mtime; loadAutoStash(true); }
+    if(j.mtime && lastSaveMtime && j.mtime!==lastSaveMtime){
+      lastSaveMtime=j.mtime;
+      // o jogo salva sozinho o tempo todo; não tirar o usuário da varredura/ordens
+      if(scanResult || ordData || scanning){ saveChangedPending=true; showSaveChangedHint(); }
+      else loadAutoStash(true);
+    }
     else if(j.mtime && !lastSaveMtime) lastSaveMtime=j.mtime;
   }catch{}
 }
 setInterval(pollSaveMtime, 15000);
+
+// Aviso discreto: o baú do jogo mudou, mas a tela atual (varredura/ordens) foi preservada.
+function showSaveChangedHint(){
+  let bar=$('saveChanged');
+  if(!bar){
+    bar=document.createElement('div'); bar.id='saveChanged';
+    $('stashHead').insertAdjacentElement('afterend', bar);
+    bar.addEventListener('click', e=>{
+      if(e.target.closest('[data-a="reload"]')){ saveChangedPending=false; bar.remove(); loadAutoStash(true); }
+      else if(e.target.closest('[data-a="dismiss"]')){ saveChangedPending=false; bar.remove(); }
+    });
+  }
+  bar.innerHTML=`<span>🔄 O baú mudou no jogo. Sua varredura atual foi mantida.</span>`
+    +`<button data-a="reload">Atualizar agora</button><button data-a="dismiss">Depois</button>`;
+}
 
 function fmtUsd(c){ return '$'+((c||0)/100).toFixed(2); }
 function sourceLabel(src){
