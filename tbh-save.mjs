@@ -14,6 +14,12 @@ const ITEM_TABLE_CACHE = path.join(SAVE_NAMES_DIR, 'tbh-itemtable.json');
 const ITEM_TABLE_SEED = path.join(SAVE_NAMES_DIR, 'tbh-itemtable.seed.json');
 const ITEM_NAMES_CACHE = path.join(SAVE_NAMES_DIR, 'tbh-itemnames.json');
 const ITEM_NAMES_SEED = path.join(SAVE_NAMES_DIR, 'tbh-itemnames.seed.json');
+// Conjunto CANÔNICO de hashes de mercado já vistos (acumulado, à prova de cache parcial).
+// O search/render da Steam responde 10 itens/página pra anônimo; um 429 no meio deixa o cache
+// incompleto. Se cruzássemos o baú só com a foto parcial do momento, itens negociáveis SOMEM e
+// VOLTAM (total oscilante). Persistindo a união de tudo que já vimos, "tem mercado?" fica estável;
+// só o PREÇO pode ficar pendente (resolvido sob demanda no server).
+const MARKET_HASHES_FILE = path.join(SAVE_NAMES_DIR, 'tbh-market-hashes.json');
 // Senha de descriptografia do save (Easy Save 3). NÃO é segredo do usuário — é uma chave do JOGO,
 // guardada em texto plano dentro dos assets do TBH. A gente extrai sozinho (à prova de updates).
 // Pode forçar via env TBH_ES3_PASSWORD se a auto-extração falhar.
@@ -180,6 +186,33 @@ function buildMarketByName(marketItems) {
   return idx;
 }
 
+// ── Conjunto canônico de hashes de mercado (lowercase) — persistido e acumulado ──────────
+let _canonHashes = null; // Set<string> lowercase
+function loadCanonHashes() {
+  if (_canonHashes) return _canonHashes;
+  _canonHashes = new Set();
+  try {
+    const arr = JSON.parse(fs.readFileSync(MARKET_HASHES_FILE, 'utf8'));
+    if (Array.isArray(arr)) for (const h of arr) if (h) _canonHashes.add(String(h).toLowerCase());
+  } catch {}
+  return _canonHashes;
+}
+
+// Funde os hashes da foto atual do mercado no conjunto canônico e persiste se cresceu.
+// Chamado a cada readStash com o cache de mercado disponível no momento.
+function mergeCanonHashes(marketItems) {
+  const set = loadCanonHashes();
+  let added = 0;
+  for (const m of marketItems || []) {
+    const h = (m.hash || m.name || '').toLowerCase();
+    if (h && !set.has(h)) { set.add(h); added++; }
+  }
+  if (added) {
+    try { fs.writeFileSync(MARKET_HASHES_FILE, JSON.stringify([...set])); } catch {}
+  }
+  return set;
+}
+
 function titleToken(s) {
   const t = String(s || '').trim();
   if (!t) return '';
@@ -289,9 +322,20 @@ export function readStash(marketItems) {
   const names = loadItemNames();
   const mkidx = buildMarketIndex(marketItems);
   const mkByName = buildMarketByName(marketItems);
+  // Conjunto canônico acumulado: "este hash É negociável na Steam", independente do cache atual.
+  const canon = mergeCanonHashes(marketItems);
+
+  // Item negociável cujo PREÇO ainda não veio no cache parcial. Não some: aparece como "pendente"
+  // e o server resolve o preço sob demanda (priceoverview). É o que conserta itens que "somem/voltam".
+  const pendingMarketItem = (hash, type, kind) => ({
+    name: hash, hash, priceCents: 0, priceText: 'preço pendente', listings: null,
+    type: type || '', color: '', icon: '',
+    url: `https://steamcommunity.com/market/listings/${TBH_APPID}/${encodeURIComponent(hash)}`,
+    hasMarketListing: true, pricePending: true, kind,
+  });
 
   const agg = {}; // marketHash -> { name, priceCents, qty, kind }
-  let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0, unlisted = 0;
+  let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, unpriced = 0, unlisted = 0, pending = 0;
   let ownedGearItems = 0, ownedMaterialItems = 0, ownedOtherItems = 0;
   const unknown = {};
   const unlistedSummary = {};
@@ -310,12 +354,20 @@ export function readStash(marketItems) {
     if (r && r.GEARTYPE && r.Level) {
       const gearHash = gearMarketHash(r, names);
       m = mkidx[`${r.GEARTYPE}|${r.GRADE}|${r.Level}`.toUpperCase()]
-        || (gearHash ? mkByName[gearHash.toLowerCase()] : null)
-        || syntheticGearMarketItem(r, names);
+        || (gearHash ? mkByName[gearHash.toLowerCase()] : null);
+      // Cache parcial não trouxe o preço, mas o hash É negociável (visto antes) → pendente, não some.
+      if (!m && gearHash && canon.has(gearHash.toLowerCase())) m = pendingMarketItem(gearHash, gearTypeText(r), 'gear');
+      if (!m) m = syntheticGearMarketItem(r, names); // negociável p/ tabela, mas sem anúncio no mercado
       kind = 'gear';
     }
     // 2) material: casa por nome localizado
-    if (!m) { const nm = localizedName; if (nm) { m = mkByName[nm.toLowerCase()]; if (m) kind = 'material'; } }
+    if (!m && localizedName) {
+      const nm = localizedName.toLowerCase();
+      m = mkByName[nm];
+      if (m) kind = 'material';
+      // Material negociável (hash canônico) cujo preço não veio no cache → pendente, não some.
+      else if (canon.has(nm)) { m = pendingMarketItem(localizedName, '', 'material'); kind = 'material'; }
+    }
     if (m) {
       const k = m.hash;
       if (!agg[k]) agg[k] = {
@@ -330,11 +382,14 @@ export function readStash(marketItems) {
         qty: 0,
         kind,
         hasMarketListing: m.hasMarketListing !== false,
+        pricePending: !!m.pricePending,
       };
       agg[k].qty++;
       if (m.hasMarketListing === false) {
         unlisted++;
         unlistedSummary[m.name] = (unlistedSummary[m.name] || 0) + 1;
+      } else if (m.pricePending) {
+        pending++; // negociável, preço a resolver sob demanda (não entra no total ainda)
       } else {
         totalCents += m.priceCents; priced++;
         if (kind === 'material') matCents += m.priceCents; else gearCents += m.priceCents;
@@ -361,6 +416,7 @@ export function readStash(marketItems) {
     ownedMaterialItems,
     ownedOtherItems,
     pricedItems: priced,
+    pendingItems: pending,
     unlistedItems: unlisted,
     unpricedItems: unpriced,
     types: list.length,
@@ -374,4 +430,26 @@ export function readStash(marketItems) {
     unlistedSummary: Object.entries(unlistedSummary).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
     unknownSummary: Object.entries(unknown).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([k, n]) => ({ label: k, qty: n })),
   };
+}
+
+// Aplica preços resolvidos sob demanda (hash -> priceCents em USD) num stash já lido.
+// Converte itens "pendentes" em "com preço", recalcula totais e reordena. Mutação imutável (novo obj).
+export function applyResolvedPrices(stash, priceByHash) {
+  if (!stash || !Array.isArray(stash.items)) return stash;
+  let totalCents = 0, gearCents = 0, matCents = 0, priced = 0, pending = 0;
+  const items = stash.items.map((it) => {
+    const resolved = priceByHash[it.hash];
+    let next = it;
+    if (it.pricePending && resolved != null && resolved > 0) {
+      next = { ...it, priceCents: resolved, priceText: null, pricePending: false };
+    }
+    const qty = next.qty || 1;
+    if (next.hasMarketListing === false) return next;            // sem anúncio: fora do total
+    if (next.pricePending) { pending += qty; return next; }      // ainda sem preço (por unidade)
+    totalCents += (next.priceCents || 0) * qty; priced += qty;   // priced por unidade (como readStash)
+    if (next.kind === 'material') matCents += (next.priceCents || 0) * qty;
+    else gearCents += (next.priceCents || 0) * qty;
+    return next;
+  }).sort((a, b) => (b.priceCents || 0) * (b.qty || 1) - (a.priceCents || 0) * (a.qty || 1));
+  return { ...stash, items, totalCents, gearCents, matCents, pricedItems: priced, pendingItems: pending };
 }

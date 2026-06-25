@@ -10,6 +10,7 @@ data/items-*.json
 data/inv-*.json
 data/*.log
 data/boot.log
+data/tbh-market-hashes.json
 
 # Tabelas extraídas dos assets do jogo (cada usuário gera as suas)
 data/tbh-itemnames.json

@@ -73,9 +73,9 @@
   .add:hover{background:#222b45;border-color:var(--gold)}
   .empty{padding:16px;color:var(--dim);text-align:center;font-size:14px}
   /* Ordens de compra (venda imediata) */
-  #ordBtn{background:#1a2238;border:1px solid var(--line);border-radius:8px;color:var(--gold);cursor:pointer;padding:7px 12px;font-size:13px;font-weight:600;white-space:nowrap}
-  #ordBtn:hover{background:#232d4a;border-color:var(--gold)}
-  #ordBtn:disabled{opacity:.6;cursor:wait}
+  #ordBtn,#stashRefreshBtn{background:#1a2238;border:1px solid var(--line);border-radius:8px;color:var(--gold);cursor:pointer;padding:7px 12px;font-size:13px;font-weight:600;white-space:nowrap}
+  #ordBtn:hover,#stashRefreshBtn:hover{background:#232d4a;border-color:var(--gold)}
+  #ordBtn:disabled,#stashRefreshBtn:disabled{opacity:.6;cursor:wait}
   #ordSummary{border-top:1px solid var(--line);padding:11px 16px;background:#0f1626;font-size:13px;color:var(--dim)}
   #ordSummary .obtot{display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}
   #ordSummary .obtot>b{color:var(--green);font-size:18px}
@@ -144,6 +144,7 @@
         <span class="brlt" id="totBrl"></span>
         <span class="split" id="totSplit"></span>
       </div>
+      <button id="stashRefreshBtn" title="Reler o baú do save do jogo (depois de dropar ou vender algo)">↻ Atualizar Baú</button>
       <button id="ordBtn" title="Buscar as ordens de compra de cada item — quanto dá pra vender NA HORA">💸 Ver ordens de compra</button>
       <button id="diagBtn" title="Copiar um diagnóstico seguro para pedir ajuda">📋 Diagnóstico</button>
       <span id="stashToggle" class="meta">▼</span>
@@ -242,17 +243,48 @@ async function loadOrders(){
   renderStash();
 }
 
-async function loadAutoStash(){
+let lastSaveMtime=0;       // pro poll detectar drop/venda no jogo
+let pricesResolving=false; // evita disparar o /api/stash-prices duas vezes
+
+async function loadAutoStash(force){
   stashData=null; stashError=''; ordData=null; $('ordSummary').hidden=true;
   $('diagPanel').hidden=true;
   try{
-    const r=await fetch(`/api/stash?appid=${appid}`);
+    const r=await fetch(`/api/stash?appid=${appid}${force?'&refresh=1':''}`);
     const j=await r.json();
     if(!r.ok) throw new Error(j.error||r.status);
     if(j.supported) stashData=j;
+    if(j&&j.saveMtime) lastSaveMtime=j.saveMtime;
   }catch(e){ stashError=e.message||'erro desconhecido'; }
   renderStash();
+  // resolve sob demanda os preços pendentes (itens negociáveis cujo preço não veio no cache parcial)
+  if(stashData && stashData.pendingItems>0) resolvePendingPrices();
 }
+
+// Busca os preços que faltam item a item (server controla o throttle) e atualiza o total AO VIVO.
+// É o que impede itens negociáveis de "sumirem" quando a Steam entrega o cache de mercado parcial.
+async function resolvePendingPrices(){
+  if(pricesResolving) return; pricesResolving=true;
+  const old=$('stashCount').textContent;
+  $('stashCount').textContent='resolvendo preços do baú…';
+  try{
+    const r=await fetch(`/api/stash-prices?appid=${appid}`);
+    const j=await r.json();
+    if(r.ok && j.found){ stashData=j; renderStash(); }
+  }catch(e){ /* mantém o que já tem; total parcial é melhor que sumir item */ }
+  finally{ pricesResolving=false; if($('stashCount').textContent==='resolvendo preços do baú…') $('stashCount').textContent=old; }
+}
+
+// Poll leve: se o save mudou (Giba dropou/vendeu no jogo), re-lê o baú sozinho.
+async function pollSaveMtime(){
+  if(appid!==3678970) return;
+  try{
+    const j=await(await fetch('/api/save-mtime')).json();
+    if(j.mtime && lastSaveMtime && j.mtime!==lastSaveMtime){ lastSaveMtime=j.mtime; loadAutoStash(true); }
+    else if(j.mtime && !lastSaveMtime) lastSaveMtime=j.mtime;
+  }catch{}
+}
+setInterval(pollSaveMtime, 15000);
 
 function fmtUsd(c){ return '$'+((c||0)/100).toFixed(2); }
 function sourceLabel(src){
@@ -268,6 +300,7 @@ function diagChipsHtml(j){
     <span>${j?.slotRefs||0} slots vistos</span>
     <span>${j?.duplicateSlotRefsIgnored||0} duplicados ignorados</span>
     <span>${j?.pricedItems||0} com preço</span>
+    <span>${j?.pendingItems||0} carregando preço</span>
     <span>${j?.unlistedItems||0} sem anúncio</span>
     <span>${j?.unpricedItems||0} sem mercado</span>
     <span>tabela: ${src.itemTable||'?'}</span>
@@ -334,7 +367,9 @@ function renderStash(){
       const tot=r.priceCents*r.qty;
       const ki=r.kind==='material'?'🔩':'⚔️';
       const noListing = r.hasMarketListing === false;
-      const priceNote = noListing ? 'sem anúncio de venda · tente ordens de compra' : `${r.priceText} un.`;
+      const pending = r.pricePending === true;
+      const priceNote = noListing ? 'sem anúncio de venda · tente ordens de compra'
+        : pending ? 'preço carregando…' : `${r.priceText} un.`;
       const o = ordData && ordData[r.hash];
       const hasBuy = o && o.maxBuyCents>0;
       const obCell = ordData ? `<div class="ob">${ obCellHtml(o) }</div>` : '';
@@ -343,7 +378,7 @@ function renderStash(){
         ${r.icon?`<img loading="lazy" src="${r.icon}">`:'<div style="width:34px"></div>'}
         <div class="sn"><b ${r.color?`style="color:#${r.color}"`:''}>${r.name}</b><small>${r.type} · ${priceNote}</small></div>
         <div class="qty" style="cursor:default"><span>×${r.qty}</span></div>
-        <div class="sval${noListing?' muted':''}">${noListing?'sem anúncio':'$'+(tot/100).toFixed(2)}</div>
+        <div class="sval${(noListing||pending)?' muted':''}">${noListing?'sem anúncio':pending?'⏳':'$'+(tot/100).toFixed(2)}</div>
         ${obCell}
         <a class="srm" href="${r.url}" target="_blank" title="Abrir na Steam" style="text-decoration:none">↗</a></div>`;
     }).join('') : `<div class="diagbox"><b class="${stashData.totalItems?'warn':'ok'}">Baú automático lido.</b><br>${stashData.totalItems
@@ -358,6 +393,7 @@ function renderStash(){
       $('totSplit').innerHTML=`⚔️ equipamentos <b>${fmtUsd(stashData.gearCents)}</b> &nbsp;·&nbsp; 🔩 materiais <b>${fmtUsd(stashData.matCents)}</b>${extra?' &nbsp;·&nbsp; '+extra:''}`;
     }
     const bits = [`🔄 auto do save`, `${stashData.totalItems||0} itens lidos`, `${stashData.types||0} tipos na tela`, `${stashData.pricedItems||0} com preço`];
+    if(stashData.pendingItems) bits.push(`⏳ ${stashData.pendingItems} carregando preço`);
     if(stashData.ownedGearItems!=null) bits.push(`⚔️ ${stashData.ownedGearItems} equips lidos`);
     if(stashData.unlistedItems) bits.push(`${stashData.unlistedItems} sem anúncio`);
     if(stashData.unpricedItems) bits.push(`${stashData.unpricedItems} sem mercado`);
@@ -402,6 +438,12 @@ $('stashHead').addEventListener('click',e=>{
   if(e.target.closest('button,a')) return;
   const body=$('stashBody'); const hide=body.style.display!=='none';
   body.style.display=hide?'none':''; $('stashToggle').textContent=hide?'▶':'▼';
+});
+$('stashRefreshBtn').addEventListener('click',async e=>{
+  e.stopPropagation();
+  const b=$('stashRefreshBtn'), old=b.textContent; b.disabled=true; b.textContent='↻ Lendo…';
+  await loadAutoStash(true);
+  b.disabled=false; b.textContent=old;
 });
 $('ordBtn').addEventListener('click',e=>{ e.stopPropagation(); loadOrders(); });
 $('diagBtn').addEventListener('click',async e=>{

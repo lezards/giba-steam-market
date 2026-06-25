@@ -50,6 +50,7 @@ const cachePath = (appid) => path.join(DATA, `items-${appid}.json`);
 
 const priceCache = new Map(); // key: appid|name → { at, data }
 const refreshing = new Map(); // appid → Promise em andamento (dedup)
+const stashCache = new Map(); // appid → { at, saveMtime, data } — baú lido (invalida no mtime do save)
 const orderbookCache = new Map(); // key: appid|hash → { at, data }
 const ORDERBOOK_TTL_MS = 3 * 60 * 1000; // ordens mudam rápido; 3min é bom equilíbrio
 const ORDERBOOK_DELAY_MS = 650;          // throttle entre itens do baú (gentileza com a Steam)
@@ -139,6 +140,47 @@ async function apiPrice(q) {
   const data = { name, brl: j.lowest_price || null, medianBrl: j.median_price || null, volume: j.volume || null };
   priceCache.set(key, { at: Date.now(), data });
   return data;
+}
+
+// Preço USD por hash via priceoverview (currency=1). Cache em memória (mesmo do apiPrice mas key USD).
+async function priceUsdCents(appid, hash) {
+  const key = `${appid}|usd|${hash}`;
+  const hit = priceCache.get(key);
+  if (hit && (Date.now() - hit.at) < PRICE_TTL_MS) return hit.data;
+  const url = `https://steamcommunity.com/market/priceoverview/?appid=${appid}&currency=1&market_hash_name=${encodeURIComponent(hash)}`;
+  const j = await steamGet(url);
+  // "$1.23" → 123 centavos. lowest_price é o preço de venda mais barato (o que vale o item).
+  const parse = (s) => { const m = String(s || '').match(/[\d.,]+/); if (!m) return null; return Math.round(parseFloat(m[0].replace(',', '')) * 100); };
+  const cents = parse(j.lowest_price) ?? parse(j.median_price);
+  const data = { hash, priceCents: cents, volume: j.volume || null, hasListing: cents != null };
+  priceCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
+// Resolve sob demanda os preços dos itens "pendentes" do baú (negociáveis cujo preço não veio no
+// cache parcial do mercado). Server controla o throttle. NÃO depende do cache estar cheio.
+async function apiStashPrices(q) {
+  const appid = Number(q.get('appid')) || DEFAULT_APPID;
+  if (!tbhSave.saveExists()) return { found: false };
+  const market = readListCache(appid);
+  const stash = tbhSave.readStash(market ? market.items : []);
+  const pendentes = (stash.items || []).filter(it => it.pricePending && it.hash);
+  const priceByHash = {};
+  let resolved = 0, failed = 0;
+  for (const it of pendentes) {
+    try {
+      const p = await priceUsdCents(appid, it.hash);
+      if (p.priceCents != null) { priceByHash[it.hash] = p.priceCents; resolved++; }
+      else failed++; // success mas sem preço = não vende mesmo
+    } catch (e) {
+      failed++;
+      if (e.code === 429) { log(`stash-prices: 429 — entregando ${resolved} resolvidos parciais`); break; }
+    }
+    await sleep(ORDERBOOK_DELAY_MS);
+  }
+  const out = tbhSave.applyResolvedPrices(stash, priceByHash);
+  logStashSummary(out);
+  return { supported: true, found: true, resolved, failed, pendingLeft: out.pendingItems, ...out };
 }
 
 // ── Ordens de compra (buy orders) — venda imediata ────────────────────────
@@ -243,9 +285,15 @@ const server = http.createServer(async (req, res) => {
       return send(200, await fetchOrderbook(appid, name));
     }
     if (u.pathname === '/api/stash-orders') return send(200, await apiStashOrders(u.searchParams));
+    if (u.pathname === '/api/stash-prices') return send(200, await apiStashPrices(u.searchParams));
+    if (u.pathname === '/api/save-mtime') {
+      // poll leve pro front detectar drop/venda no jogo e re-ler o baú sozinho
+      return send(200, { mtime: tbhSave.saveExists() ? tbhSave.saveMtime() : 0 });
+    }
     if (u.pathname === '/api/stash') {
       // só TBH tem leitura de save; outros appids retornam "não suportado"
       const appid = Number(u.searchParams.get('appid')) || DEFAULT_APPID;
+      const force = u.searchParams.get('refresh') === '1';
       if (appid !== DEFAULT_APPID) return send(200, { supported: false });
       if (!tbhSave.saveExists()) {
         logThrottled('stash:no-save', 'BAU: save do TBH nao encontrado. Abra o jogo uma vez e depois clique Atualizar.', 60_000);
@@ -256,7 +304,14 @@ const server = http.createServer(async (req, res) => {
         logThrottled('stash:need-market', 'BAU: save encontrado; aguardando a lista de precos do Mercado Steam carregar.', 30_000);
         return send(200, { supported: true, found: true, needItems: true });
       }
+      // cache do baú invalidado pelo mtime do save: mesmo save = mesma resposta (determinístico).
+      const mtime = tbhSave.saveMtime();
+      const hit = stashCache.get(appid);
+      if (!force && hit && hit.saveMtime === mtime) {
+        return send(200, { supported: true, found: true, cached: true, ...hit.data });
+      }
       const stash = tbhSave.readStash(market.items);
+      stashCache.set(appid, { at: Date.now(), saveMtime: mtime, data: stash });
       logStashSummary(stash);
       return send(200, { supported: true, found: true, ...stash });
     }
